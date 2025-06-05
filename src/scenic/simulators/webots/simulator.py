@@ -28,6 +28,7 @@ from scenic.core.simulators import Simulation, Simulator
 from scenic.core.type_support import toOrientation
 from scenic.core.vectors import Vector
 from scenic.simulators.webots.utils import ENU, WebotsCoordinateSystem
+from controller import DistanceSensor
 
 
 class WebotsSimulator(Simulator):
@@ -74,11 +75,21 @@ class WebotsSimulation(Simulation):
         self.nextAdHocObjectId = 1
         self.usedObjectNames = defaultdict(lambda: 0)
 
+        timestep = supervisor.getBasicTimeStep() / 1000 if timestep is None else timestep
         # directory to store proto files for adhoc webots objects
         self.tmpMeshDir = tempfile.mkdtemp()
 
         self.left_motor = self.supervisor.getDevice("right wheel motor")
         self.right_motor = self.supervisor.getDevice("left wheel motor")
+
+        self.sensor_right = self.supervisor.getDevice("cliff_right")
+        self.sensor_front_right = self.supervisor.getDevice("cliff_front_right")
+
+        self.sensor_left = self.supervisor.getDevice("cliff_left")
+        self.sensor_front_left = self.supervisor.getDevice("cliff_front_left")
+
+        self.left_wheel_sensor = self.supervisor.getDevice("left wheel sensor")
+        self.right_wheel_sensor = self.supervisor.getDevice("right wheel sensor")
 
         self.left_motor.setPosition(float('inf'))
         self.right_motor.setPosition(float('inf'))
@@ -87,9 +98,9 @@ class WebotsSimulation(Simulation):
         self.right_motor.setVelocity(0)
         print("motor velocity set")
 
-        self.actions = dict()
 
-        timestep = supervisor.getBasicTimeStep() / 1000 if timestep is None else timestep
+        self.enable_sensors = False
+        self.actions = dict()
 
         super().__init__(scene, timestep=timestep, **kwargs)
 
@@ -115,10 +126,17 @@ class WebotsSimulation(Simulation):
             objFilePath = path.join(self.tmpMeshDir, f"{self.nextAdHocObjectId}.obj")
             trimesh.exchange.export.export_mesh(objectScaledMesh, objFilePath)
 
+
+
             name = self._getAdhocObjectName(self.nextAdHocObjectId)
             protoName = (
                 "ScenicObjectWithPhysics" if isPhysicsEnabled(obj) else "ScenicObject"
             )
+            print("TESTING DELETE THIS LINE") # Temporary fix, not sure if this is the right way to do this? hmm
+            print(objFilePath, type(objFilePath))
+            objFilePath = str(objFilePath).replace("\\", "\\\\")
+            print(objFilePath)
+            print("TESTING COMPLETE")
             protoDef = dedent(
                 f"""
                 DEF {name} {protoName} {{
@@ -218,21 +236,30 @@ class WebotsSimulation(Simulation):
                 webotsObj.restartController()
 
     def step(self): # action should be some low level control commands for the robot
-      
-        print("step was called : ")
         ms = round(1000 * self.timestep)
-        
-        print(f"Action was {self.actions}")
+        if self.enable_sensors: 
+            print(f"Action was {self.actions}")
 
-        self.left_motor.setVelocity(self.actions[0]) # Here lets just pass an array with values for each motor
-        self.right_motor.setVelocity(self.actions[1])
-        self.supervisor.step(ms)
-        print("motor velocity set with values")
-        print(self.left_motor.getVelocity(), self.right_motor.getVelocity())
-        print("/n")
+            self.left_motor.setVelocity(self.actions[0]) # Here lets just pass an array with values for each motor
+            self.right_motor.setVelocity(self.actions[1])
+            self.supervisor.step(ms)
+            print("motor velocity set with values")
+            print(self.left_motor.getVelocity(), self.right_motor.getVelocity())
+            print("/n")
   
         #self.supervisor.step(ms)
-        return [],[],[],[],[]
+        else:
+            self.sensor_right.enable(ms)
+            self.sensor_front_right.enable(ms)
+
+            self.sensor_front_left.enable(ms)
+            self.sensor_left.enable(ms)
+
+            self.left_wheel_sensor.enable(ms)
+            self.right_wheel_sensor.enable(ms)
+            self.enable_sensors = True
+
+        return []
 
     def getProperties(self, obj, properties):
         webotsObj = getattr(obj, "webotsObject", None)
@@ -288,10 +315,22 @@ class WebotsSimulation(Simulation):
         return 1
     
     def get_info(self):
+        
         return {}
-    
+     
     def get_obs(self):
-        return {}
+        if (isinstance(self.actions, dict)):
+            return {}
+        else:
+            return {"velocity_left":self.actions[0], 
+                "velocity_right":self.actions[1], 
+                "sensor_left":self.sensor_left.getValue(),
+                "sensor_right":self.sensor_right.getValue(),
+                "sensor_front_right": self.sensor_front_right.getValue(),
+                "sensor_front_left" : self.sensor_front_left.getValue(),
+                "left_wheel_sensor" : self.left_wheel_sensor.getValue(),
+                "right_wheel_sensor": self.right_wheel_sensor.getValue()
+                } 
 
 
 
