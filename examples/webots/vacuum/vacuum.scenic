@@ -67,5 +67,5 @@ for _ in range(globalParameters.numToys):
     new Toy on floor
 
 ## Simulation Setup ##
-terminate after globalParameters.duration * 60 seconds
+terminate after globalParameters.duration * 500 seconds
 record (ego.x, ego.y) as VacuumPosition
