@@ -86,13 +86,12 @@ Bed {
   translation 3.75 3.2800000002397445 0
   rotation 0 0 1 3.1415
 }
-Table {
+ Table {
   translation -3.28632 -3.86254 0
 }
 
-Armchair {
-  translation 3.5894 0.323101 0
-  rotation 0 0 1 -2.5895153071795862
+DEF armchair Armchair{
+
 }
 LandscapePainting {
   translation 0.292736 -4.77308 1.5
