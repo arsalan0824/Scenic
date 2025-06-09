@@ -22,7 +22,7 @@ back_wall = new Wall at (0, -wall_offset, 0.25), facing toward floor
 ego = new Vacuum on floor
 
 # Create a "safe zone" around the vacuum so that it does not start stuck
-safe_zone = CircularRegion(ego.position, radius=1)
+"""safe_zone = CircularRegion(ego.position, radius=1)
 
 # Create a dining room region where we will place dining room furniture
 dining_room_region = RectangularRegion(1.25 @ 0, 0, 2.5, 5).difference(safe_zone)
@@ -67,5 +67,6 @@ for _ in range(globalParameters.numToys):
     new Toy on floor
 
 ## Simulation Setup ##
-terminate after globalParameters.duration * 500 seconds
+#terminate after globalParameters.duration * 500 seconds
 record (ego.x, ego.y) as VacuumPosition
+"""
