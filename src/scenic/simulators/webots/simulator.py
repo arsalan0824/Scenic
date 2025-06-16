@@ -91,9 +91,6 @@ class WebotsSimulation(Simulation):
         self.sensor_left = self.supervisor.getDevice("cliff_left")
         self.sensor_front_left = self.supervisor.getDevice("cliff_front_left")
 
-        self.left_wheel_sensor = self.supervisor.getDevice("left wheel sensor")
-        self.right_wheel_sensor = self.supervisor.getDevice("right wheel sensor")
-
         self.left_motor.setPosition(float('inf'))
         self.right_motor.setPosition(float('inf'))
 
@@ -106,10 +103,9 @@ class WebotsSimulation(Simulation):
 
         self.enable_sensors = False
         self.actions = [0,0]
-        self.observation = np.zeros(8) # TODO Need to fix obs and initialziation
+        self.observation = np.zeros(6) # TODO Need to fix obs and initialziation
         self.ms = round(1000 * self.timestep)
 
-        self.reward = .1 # iteratively build reward
 
         super().__init__(scene, timestep=timestep, **kwargs)
 
@@ -251,14 +247,15 @@ class WebotsSimulation(Simulation):
                # TODO more elegant fix here, sensor need to be adaquetly initialized before the simlation begins stepping
                 self.init_step()
 
+        # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
+        self.observation = np.array([self.actions[0], self.actions[1], np.clip(self.sensor_left.getValue(),0,100)/100, np.clip(self.sensor_right.getValue(),0,100)/100, # ensures that null values are not returned from unintialized sensors
+                np.clip(self.sensor_front_right.getValue(),0,1000)/1000, np.clip(self.sensor_front_left.getValue(),0,1000)/1000])       
+
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
         self.right_motor.setVelocity(self.actions[1])
         print(self.actions) 
-        # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
-        self.observation = np.array([self.actions[0], self.actions[1], self.sensor_left.getValue(), self.sensor_right.getValue(), # ensures that null values are not returned from unintialized sensors
-                            self.sensor_front_right.getValue(), self.sensor_front_left.getValue(),
-                            self.left_wheel_sensor.getValue(), self.right_wheel_sensor.getValue()])
+      
         """     
         print ({"velocity_left":self.actions[0], 
             "velocity_right":self.actions[1], 
@@ -284,9 +281,6 @@ class WebotsSimulation(Simulation):
 
         self.sensor_front_left.enable(self.ms)
         self.sensor_left.enable(self.ms)
-
-        self.left_wheel_sensor.enable(self.ms)
-        self.right_wheel_sensor.enable(self.ms)
 
         self.supervisor.step(self.ms) # Need to step the simulation once after initializing the sensors!
         self.enable_sensors = True
@@ -348,23 +342,29 @@ class WebotsSimulation(Simulation):
         Calculate the reward based off of the current state
         """
         pos = np.array(self.supervisor_node.getPosition()[:2])
-        pos = np.round(pos, decimals=2)
+        pos = np.round(pos, decimals=1) 
         #TODO penalize the robo for running into objects
         #     need to devise better reward func!
         if [pos[0],pos[1]] not in self.covered_spaces:
             self.covered_spaces.append([pos[0],pos[1]])
-            reward = self.reward
-            self.reward += .1
+            reward = 1
         elif self.invalid_action:
             reward = -100
             self.invalid_action = False
-        elif (self.right_wheel_sensor.getValue() < .1) or ( self.left_wheel_sensor.getValue() < .1):
-            reward = -10 # Penalize the bot for hitting the wall
-        elif (self.sensor_right.getValue() < .1) or (self.sensor_left.getValue() < .1):
-            reward = -10
+        elif (self.sensor_front_left.getValue() <.05) or ( self.sensor_front_right.getValue() <.05 ):
+            if (self.actions[0] > 3 and self.actions[1] > 3):
+                reward = -10 # Penalize the bot for hitting the wall at a high speed
+            else:
+                reward = -1 #smaller penalty for lighting hitting an object
+        elif (self.sensor_left.getValue() <.05) or ( self.sensor_right.getValue() <.05 ):
+            if (self.actions[0] > 3 and self.actions[1] > 3):
+                reward = -10 # Penalize the bot for hitting the wall at a high speed
+            else:
+                reward = -1 #smaller penalty for lighting hitting an object
         else:
             reward = -1 
 
+        print(self.observation,"\n" ,reward)
         return reward
     
     def get_info(self):
@@ -387,11 +387,12 @@ class WebotsSimulation(Simulation):
         self.actions[0] = self.actions[0] * self.velocity_ranges[1] 
         self.actions[1] = self.actions[1] * self.velocity_ranges[1]
 
-        if np.any(self.actions > 16.139):
+        if np.any(np.abs(self.actions) > 16.139):
             print("Error with velocity comp:")
             self.invalid_action = True
             print(f"Actions: {self.actions[0], self.actions[1]}")
-            print(f"Velocity: {self.velocity_ranges[0], self.velocity_ranges[1]}")
+            self.actions[0] = 0
+            self.actions[1] = 0 # set invalid action to 0 instead
 
             
 
