@@ -102,11 +102,14 @@ class WebotsSimulation(Simulation):
         self.velocity_ranges = [0,16.129]
 
         self.covered_spaces = []
+        self.invalid_action = False
 
         self.enable_sensors = False
         self.actions = [0,0]
         self.observation = np.zeros(8) # TODO Need to fix obs and initialziation
         self.ms = round(1000 * self.timestep)
+
+        self.reward = .1 # iteratively build reward
 
         super().__init__(scene, timestep=timestep, **kwargs)
 
@@ -243,7 +246,7 @@ class WebotsSimulation(Simulation):
                 webotsObj.restartController()
 
     def step(self): # action should be some low level control commands for the robot
-        if not self.enable_sensors:
+        if not self.enable_sensors: 
                # print("Protections failed sensors were not initialized before calling") 
                # TODO more elegant fix here, sensor need to be adaquetly initialized before the simlation begins stepping
                 self.init_step()
@@ -256,8 +259,8 @@ class WebotsSimulation(Simulation):
         self.observation = np.array([self.actions[0], self.actions[1], self.sensor_left.getValue(), self.sensor_right.getValue(), # ensures that null values are not returned from unintialized sensors
                             self.sensor_front_right.getValue(), self.sensor_front_left.getValue(),
                             self.left_wheel_sensor.getValue(), self.right_wheel_sensor.getValue()])
-            
-        """return {"velocity_left":self.actions[0], 
+        """     
+        print ({"velocity_left":self.actions[0], 
             "velocity_right":self.actions[1], 
             "sensor_left":self.sensor_left.getValue(),
             "sensor_right":self.sensor_right.getValue(),
@@ -265,7 +268,7 @@ class WebotsSimulation(Simulation):
             "sensor_front_left" : self.sensor_front_left.getValue(),
             "left_wheel_sensor" : self.left_wheel_sensor.getValue(),
             "right_wheel_sensor": self.right_wheel_sensor.getValue()
-            } """
+            }) """
         
         #print(self.observation)
 
@@ -273,6 +276,9 @@ class WebotsSimulation(Simulation):
 
 
     def init_step(self):
+        """
+        Initialize all the sensors and devices on the robot
+        """
         self.sensor_right.enable(self.ms)
         self.sensor_front_right.enable(self.ms)
 
@@ -338,29 +344,56 @@ class WebotsSimulation(Simulation):
 
 
     def get_reward(self): # "any dummy for now will be okay"
+        """
+        Calculate the reward based off of the current state
+        """
         pos = np.array(self.supervisor_node.getPosition()[:2])
         pos = np.round(pos, decimals=2)
-
         #TODO penalize the robo for running into objects
         #     need to devise better reward func!
         if [pos[0],pos[1]] not in self.covered_spaces:
             self.covered_spaces.append([pos[0],pos[1]])
-            reward = 1
+            reward = self.reward
+            self.reward += .1
+        elif self.invalid_action:
+            reward = -100
+            self.invalid_action = False
+        elif (self.right_wheel_sensor.getValue() < .1) or ( self.left_wheel_sensor.getValue() < .1):
+            reward = -10 # Penalize the bot for hitting the wall
+        elif (self.sensor_right.getValue() < .1) or (self.sensor_left.getValue() < .1):
+            reward = -10
         else:
-            reward = -1
-        
+            reward = -1 
+
         return reward
     
     def get_info(self):
+        """
+        Any information about the system/state that should be retained
+        """
         return {}
      
     def get_obs(self):
+        """
+        Return the current state of the enviroment
+        """
         return self.observation
-        
+    
     def transform_vel(self): 
-        self.actions[0] *= self.velocity_ranges[0]
-        self.actions[1] *= self.velocity_ranges[1]
+        """
+        Maps the actors actions from (-1,1) to the actual motor range
+        of the robot system
+        """
+        self.actions[0] = self.actions[0] * self.velocity_ranges[1] 
+        self.actions[1] = self.actions[1] * self.velocity_ranges[1]
 
+        if np.any(self.actions > 16.139):
+            print("Error with velocity comp:")
+            self.invalid_action = True
+            print(f"Actions: {self.actions[0], self.actions[1]}")
+            print(f"Velocity: {self.velocity_ranges[0], self.velocity_ranges[1]}")
+
+            
 
 def getFieldSafe(webotsObject, fieldName):
     """Get field from webots object. Return null if no such field exists.
