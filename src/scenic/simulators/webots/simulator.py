@@ -248,7 +248,7 @@ class WebotsSimulation(Simulation):
                 self.init_step()
 
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
-        self.observation = np.array([self.actions[0], self.actions[1], np.clip(self.sensor_left.getValue(),0,100)/100, np.clip(self.sensor_right.getValue(),0,100)/100, # ensures that null values are not returned from unintialized sensors
+        self.observation = np.array([self.actions[0], self.actions[1], np.clip(self.sensor_left.getValue(),0,1000)/1000, np.clip(self.sensor_right.getValue(),0,1000)/1000, # ensures that null values are not returned from unintialized sensors
                 np.clip(self.sensor_front_right.getValue(),0,1000)/1000, np.clip(self.sensor_front_left.getValue(),0,1000)/1000])       
 
         self.transform_vel()
@@ -342,7 +342,7 @@ class WebotsSimulation(Simulation):
         Calculate the reward based off of the current state
         """
         pos = np.array(self.supervisor_node.getPosition()[:2])
-        pos = np.round(pos, decimals=1) 
+        pos = np.round(pos, decimals=2) 
         #TODO penalize the robo for running into objects
         #     need to devise better reward func!
         if [pos[0],pos[1]] not in self.covered_spaces:
