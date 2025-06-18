@@ -25,8 +25,8 @@ scenario = scenic.scenarioFromFile(prefix +  "examples/webots/vacuum/vacuum.scen
 
 
 action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))  # Defines the possible actions of the agent
-observation_space = gym.spaces.Box(low=np.array([-1,-1,0,0,0,0]), high=np.array([1,1,1,1,1,1]),shape=(6,),dtype=np.float64) # defines the range of observations of the agent
-max_steps = 1000
+observation_space = gym.spaces.Box(low=np.array([-1,-1,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1]),shape=(7,),dtype=np.float64) # defines the range of observations of the agent
+max_steps = 5000
 env = ScenicGymEnv(scenario, 
                    simulator, 
                    render_mode=None, 
