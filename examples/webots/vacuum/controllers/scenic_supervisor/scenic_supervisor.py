@@ -39,8 +39,9 @@ total_timesteps = max_steps * episodes
 print(total_timesteps)
 
 model = PPO("MlpPolicy", env, verbose=2) # Create an instance of an agent 
+model.set_parameters("PPO_vacuum_agent")
 model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
-model.save("vacuum_agent")               # Save the model after training
+model.save("PPO_vacuum_agent")               # Save the model after training
 
 
 
