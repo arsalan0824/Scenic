@@ -15,6 +15,8 @@ from scenic.core.vectors import Vector
 from scenic.core.shapes import BoxShape, SpheroidShape, MeshShape, CylinderShape
 
 
+import gymnasium as gym 
+
 class MujocoSimulator(Simulator):
   def __init__(self, xml='', actual = False, use_default_arena=True):
     super().__init__()
@@ -37,6 +39,9 @@ class MujocoSimulation(Simulation):
     self.use_default_arena=use_default_arena
     
     self.mujocohandle=None
+
+    self.actions = np.zeros(7)
+    self.observation = np.zeros(21)
 
     if "timestep" in kwargs:
       kwargs.pop('timestep')
@@ -65,7 +70,7 @@ class MujocoSimulation(Simulation):
                                               solimp=[0.99, 0.99, 0.01],
                                               solref=[0.01, 0.5])
 
-        mjcf_model.option.set_attributes(gravity=[0, 0, -9.81],
+        mjcf_model.option.set_attributes(gravity=[0, 0, 0],
                                         timestep=self.timestep)
 
         mjcf_model.asset.add("texture",
@@ -105,17 +110,17 @@ class MujocoSimulation(Simulation):
                                 type="plane")
 
       for i, obj in enumerate(self.objects):
-        # Maybe this should be cleaned up because atm if you instantiate any native scenic
-        # objects this is going to crash the program
+        # This crashes for any native scenic objects which are instantiated which is wrong... 
+        # fixed strings for windows
         obj_mjcf_model = obj.model()
-     
+        print(f"debugging simulator.py model attirbute was: {obj_mjcf_model}")
+        
         if obj_mjcf_model:
           mjcf_model.attach(obj_mjcf_model)
-          
+          print(f"Entering If")
+        
         else:
-          print("Debugging path/names in simulator.py \n \n ")
-          print(f"{i}\\_body \\n \\n ")
-          obj.body_name = f"{i}\_body"
+          obj.body_name = f"{i}\\_body"
 
           mjcf_model.worldbody.add("body",
                                   name=obj.body_name,
@@ -145,6 +150,8 @@ class MujocoSimulation(Simulation):
 
     self.mujocohandle = mujoco.viewer.launch_passive(self.model, self.data)
 
+  
+  
   def _scenicToMujoco(self, property, property_name):
 
     if property_name == "object.shape":
@@ -157,11 +164,20 @@ class MujocoSimulation(Simulation):
       print("Mujoco does not handle creation of objects after intialization")
       return -1
 
+
+
+ # This is going to need to be modified in order to implement with 
+ # the gym class
   def step(self):
     for i, obj in enumerate(self.objects):
-      if hasattr(obj, "control"):
+
+      if hasattr(obj, "agent"):  # Mujoco Actor -- breaks acting into two steps one for the observation, the second for stepping
+        self.observation = obj.control_obs(self.data)
+        obj.apply_control(self.data,self.actions)
+
+      elif hasattr(obj, "control"): # Dynamic Mujoco body
         obj.control(self.model, self.data)
-    
+
     mujoco.mj_step(self.model, self.data)
     self.mujocohandle.sync()
     if self.actual:
@@ -208,10 +224,10 @@ class MujocoSimulation(Simulation):
 
 
   def get_obs(self):
-    return {}
+    return self.observation
   
   def get_info(self):
     return {}
   
   def get_reward(self):
-    return {}
+    return -1
