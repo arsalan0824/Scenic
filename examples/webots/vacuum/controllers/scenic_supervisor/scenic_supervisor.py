@@ -10,6 +10,8 @@ from controller import Supervisor
 
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3 import SAC,PPO
+from stable_baselines3.common.monitor import Monitor
+
 
 
  
@@ -33,15 +35,45 @@ env = ScenicGymEnv(scenario,
                    max_steps=max_steps, 
                    action_space=action_space,
                    observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
+env = Monitor(env)
 
-episodes=20
+episodes= 40
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
 model = PPO("MlpPolicy", env, verbose=2) # Create an instance of an agent 
-model.set_parameters("PPO_vacuum_agent")
+#model.set_parameters("PPO_vacuum_agent")
 model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
 model.save("PPO_vacuum_agent")               # Save the model after training
+
+# print(rewards_per_step)
+# print(env.get_episode_lengths())
+# current_streak = 0
+# epsilon = 0.01
+# streak_threshold = 5
+# converged = False
+# for i in range(1, len(rewards_per_step)):
+#     a, b = max(rewards_per_step[i], rewards_per_step[i - 1]), min(rewards_per_step[i], rewards_per_step[i - 1])
+#     #ensure a is larger
+#     if(b * (1 + epsilon) >= a):
+#         current_streak += 1
+#         if(current_streak >= streak_threshold):
+#             print("Converged after " + str(i + 1) + " episodes.")
+#             converged = True
+#             break
+#     else:
+#         current_streak = 1
+# if not converged:
+#     print("Did not converge within training episodes")
+episode_rewards = env.get_episode_rewards()
+print(episode_rewards)
+total_pc = 0
+for i in range(1, len(episode_rewards)):
+    total_pc += (episode_rewards[i] - episode_rewards[i - 1]) / np.abs(episode_rewards[i - 1])
+print("Average normalized percent difference: " + str(total_pc / (len(episode_rewards) - 1)))
+    
+
+
 
 
 
