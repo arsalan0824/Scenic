@@ -25,8 +25,8 @@ scenario = scenic.scenarioFromFile(prefix +  "examples/webots/vacuum/vacuum.scen
 
 
 action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))  # Defines the possible actions of the agent
-observation_space = gym.spaces.Box(low=np.array([-1,-1,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1]),shape=(7,),dtype=np.float64) # defines the range of observations of the agent
-max_steps = 5000
+observation_space = gym.spaces.Box(low=np.array([-1,-1,0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1,1,1]),shape=(9,),dtype=np.float64) # defines the range of observations of the agent
+max_steps = 10000
 env = ScenicGymEnv(scenario, 
                    simulator, 
                    render_mode=None, 
@@ -40,7 +40,7 @@ total_timesteps = max_steps * episodes
 print(total_timesteps)
 
 model = PPO("MlpPolicy", env, verbose=2) # Create an instance of an agent 
-#model.set_parameters("PPO_vacuum_agent")   # make green when training ----------------
+#model.set_parameters("PPO_vacuum_agent")   # make green when training (long time)----------------
 model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps 
 model.save("PPO_vacuum_agent")               # Save the model after training; u want to make it green when testing--------------
 rewards_per_step = np.array(env.get_episode_rewards()) / np.array(env.get_total_steps())
