@@ -29,8 +29,8 @@ scenario = scenic.scenarioFromFile(prefix +  "examples/webots/vacuum/vacuum.scen
 
 
 action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))  # Defines the possible actions of the agent
-observation_space = gym.spaces.Box(low=np.array([-1,-1,0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1,0,5.09,5.09]),shape=(9,),dtype=np.float64) # defines the range of observations of the agent
-max_steps = 5000
+observation_space = gym.spaces.Box(low=np.array([-1,-1,0,0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1,5.09,5.09,1]),shape=(10,),dtype=np.float64) # defines the range of observations of the agent
+max_steps = 10000
 env = ScenicGymEnv(scenario, 
                    simulator, 
                    render_mode=None, 
@@ -40,11 +40,11 @@ env = ScenicGymEnv(scenario,
 
 env = Monitor(env)
 
-episodes=200
+episodes=80
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
-model = PPO("MlpPolicy", env, verbose=2,device='cpu', n_steps=1024)  # Create an instance of an agent 
+model = PPO("MlpPolicy", env, verbose=2,device='cpu', n_steps=2048)  # Create an instance of an agent 
 #model = PPO.load("PPO_vacuum_agent")
 model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
 model.save("PPO_vacuum_agent")                       # Save the model after training
