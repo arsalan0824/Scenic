@@ -75,6 +75,7 @@ class WebotsSimulation(Simulation):
         self.total_reward = 0
         self.total_steps = 0
         self.collisions = 0
+        self.collision_guard = 0
         self.time_elapsed = 0
         self.total_steps = 0
         self.supervisor = supervisor
@@ -98,6 +99,9 @@ class WebotsSimulation(Simulation):
         self.sensor_left = self.supervisor.getDevice("cliff_left")
         self.sensor_front_left = self.supervisor.getDevice("cliff_front_left")
 
+        self.sensor_actual_left = self.supervisor.getDevice("actual_left")
+        self.sensor_actual_right = self.supervisor.getDevice("actual_right")
+
         self.sensor_back = self.supervisor.getDevice("cliff_back")
 
         self.bumper_left = self.supervisor.getDevice("bumper_left")
@@ -115,7 +119,7 @@ class WebotsSimulation(Simulation):
 
         self.enable_sensors = False
         self.actions = [0,0]
-        self.observation = np.zeros(7)  # TODO Need to fix obs and initialization
+        self.observation = np.zeros(9)  # TODO Need to fix obs and initialization
         self.ms = round(1000 * self.timestep)
 
         # --- ADD THESE LINES FOR COVERAGE TRACKING ---
@@ -132,6 +136,12 @@ class WebotsSimulation(Simulation):
 
         # Reset Webots simulation
         self.supervisor.simulationResetPhysics()
+
+    def distance_from_center(self):
+        pos = self.supervisor_node.getPosition()
+        dx = pos[0]
+        dy = pos[1]
+        return math.sqrt(dx*dx + dy*dy)
 
 
 
@@ -274,7 +284,7 @@ class WebotsSimulation(Simulation):
                 self.init_step()
         self.total_steps += 1
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
-        self.observation = np.array([self.actions[0], self.actions[1], self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, # ensures that null values are not returned from unintialized sensors
+        self.observation = np.array([self.actions[0], self.actions[1], self.sensor_left.getValue()/800, self.sensor_right.getValue()/800,  self.sensor_actual_left.getValue()/800,  self.sensor_actual_right.getValue()/800,  # ensures that null values are not returned from unintialized sensors
                 self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800])     
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
@@ -283,8 +293,6 @@ class WebotsSimulation(Simulation):
         covered_count, coverage_ratio = self.get_coverage_metric()
         if coverage_ratio > self.best_coverage[1]:
             self.best_coverage = covered_count, coverage_ratio
-        reward = self.get_reward()
-        
         self.total_steps += 1
         self.time_elapsed += self.timestep
 
@@ -308,6 +316,9 @@ class WebotsSimulation(Simulation):
 
         self.bumper_left.enable(self.ms)
         self.bumper_right.enable(self.ms)
+
+        self.sensor_actual_left.enable(self.ms)
+        self.sensor_actual_right.enable(self.ms)
 
         self.sensor_back.enable(self.ms)
 
@@ -356,10 +367,10 @@ class WebotsSimulation(Simulation):
     def destroy(self):
         print(f"this is the metric: {self.metric()}")
         # Destroy adhoc objects generated at the beginning of the simulation
-        episode_length = 50 #REMEMBER TO CHANGE FOR PRINTAS TO WORK PROPERLY
-        if(self.total_steps % episode_length == 0):
-            print(self.total_spaces)
-            print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")  
+        episode_length = 40 #REMEMBER TO CHANGE FOR PRINTAS TO WORK PROPERLY
+        # # if(self.total_steps % episode_length == 0):  #green to see coverage
+        #     print(self.total_spaces) #green to see coverage
+        print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")  
         for i in range(1, self.nextAdHocObjectId):
             name = self._getAdhocObjectName(i)
             node = self.supervisor.getFromDef(name)
@@ -400,9 +411,11 @@ class WebotsSimulation(Simulation):
             return reward
 
     def get_reward(self):
+        pos_exact = np.array(self.supervisor_node.getPosition()[:2])
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
         reward = 0
-        reward += self.get_coverage_reward(self.granularity, [pos[0], pos[1]], True)
+        reward += self.get_coverage_reward(self.granularity, [pos[0], pos[1]], True) / (np.linalg.norm(pos_exact) +1)
+        #print(1/(np.linalg.norm(pos_exact)+1)) #this is to see distance from center
         pos = np.array(self.supervisor_node.getPosition()[:2])
         pos = np.round(pos, decimals=2)
         if [pos[0], pos[1]] not in self.covered_spaces:
@@ -415,14 +428,20 @@ class WebotsSimulation(Simulation):
             self.invalid_action = False
         if np.any(self.observation[2:] < 0.1):
             reward += -10
+            self.collision_guard += 1
         elif self.bumper_left.getValue() == 1 or self.bumper_right.getValue() == 1:
             velocity_magnitude = np.mean(np.abs([self.actions[0], self.actions[1]]))
             reward += -abs(velocity_magnitude)
-
-
-        #print(self.observation, "\nReward:", reward)
+            self.collision_guard += 1
+        else:
+            self.collision_guard = 0
+    
         self.total_reward += reward
+
+        #print(f"Current reward: {reward:.4f}") #this prints the reward
+
         return reward
+
 
     
     def get_info(self):
@@ -451,6 +470,12 @@ class WebotsSimulation(Simulation):
             print(f"Actions: {self.actions[0], self.actions[1]}")
             self.actions[0] = 0
             self.actions[1] = 0 # set invalid action to 0 instead
+
+    def get_truncation(self):
+        if self.collision_guard > 20:
+            return True
+        else:
+            return False
     def metric(self):
         avg_reward = self.total_reward / self.total_steps if self.total_steps > 0 else 0
         exploration = len(self.covered_spaces)
