@@ -30,7 +30,7 @@ class Vacuum(WebotsObject):
 # Not actually linked to WebotsObject because Webots floor is 2D
 class Floor(Object):
     width: 5
-    length: 5
+    length: 3
     height: 0.01
     position: (0,0,-0.005)
     color: [0.785, 0.785, 0.785]
