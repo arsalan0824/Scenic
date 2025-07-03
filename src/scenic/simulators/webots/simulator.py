@@ -43,8 +43,6 @@ def otf(message):
     with open(file_path, 'w') as f:
         print(message, file=f)
 
-otf("Hello World!")
-
 episodes = 0
 last_reward = None
 current_streak = 0
@@ -112,11 +110,13 @@ class WebotsSimulation(Simulation):
         self.room_width = 5.09    # meters — change as needed
         self.room_length = 5.09   # meters — change as needed
         self.granularity = 0.05    # meters (matches rounding precision)
-        self.total_spaces = int((self.room_width / self.granularity) * (self.room_length / self.granularity))
-      
+        self.total_spaces = (2 * np.floor(self.room_width / (2*self.granularity)) + 1)**2 - 4 #-4 for each of the corners
+        print(f"New: {self.total_spaces}, old: {int((self.room_width/self.granularity)**2)}")
         self.total_reward = 0
         self.total_steps = 0
         self.collisions = 0
+        self.collision_safeguard = 0
+        
         self.time_elapsed = 0
         self.supervisor = supervisor
         self.coordinateSystem = coordinateSystem
@@ -161,7 +161,8 @@ class WebotsSimulation(Simulation):
 
         array_size = int(4 + 2* (self.room_length / self.granularity))
         print(f"Cleaned array size is {array_size}")
-        self.observation = {"sensor": np.zeros(7), "cleaned": np.zeros((array_size, array_size), dtype=bool)} # TODO Need to fix obs and initialziation
+        self.observation = {"velocity": np.zeros(2), "sensor": np.zeros(5), "position": np.zeros(2)} # TODO Need to fix obs and initialziation
+        #"cleaned": np.zeros((array_size, array_size), dtype=bool)
         self.cleaned_array = np.zeros((array_size, array_size), dtype=bool)
         super().__init__(scene, timestep=timestep, **kwargs)
 
@@ -313,22 +314,22 @@ class WebotsSimulation(Simulation):
 
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
         self.observation = {
-            "sensor": np.array([self.actions[0], self.actions[1], self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, # ensures that null values are not returned from unintialized sensors
+            "velocity": np.array([self.actions[0], self.actions[1]]),
+            "sensor": np.array([self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, # ensures that null values are not returned from unintialized sensors
                 self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800]),       
-            "cleaned": self.cleaned_array
+            "position": np.array([self.pos[0], self.pos[1]])
+            #"cleaned": self.cleaned_array
         }
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
         self.right_motor.setVelocity(self.actions[1])
         self.supervisor.step(self.ms)
-        
-        self.total_steps += 1
         self.time_elapsed += self.timestep
         covered_count, coverage_ratio = self.get_coverage_metric()
         if coverage_ratio > self.best_coverage[1]:
             self.best_coverage = covered_count, coverage_ratio
 
-        if np.any(self.observation["sensor"][2:] < 0.1):
+        if np.any(self.observation["sensor"] < 0.1):
             self.collisions += 1
         if(self.total_steps % 250 == 0) :
             print("Step: " + str(self.total_steps))
@@ -464,7 +465,7 @@ class WebotsSimulation(Simulation):
                     self.cleaned_array[converted_pos[0]][converted_pos[1]] = True
                     self.covered_spaces.append(point)
             if reward == 0:
-                reward -= .2
+                reward -= .1
             return reward
         
 
@@ -476,10 +477,20 @@ class WebotsSimulation(Simulation):
         pos = tuple(pos.tolist())
         reward = self.get_coverage_reward(self.granularity, [pos[0], pos[1]]) * len(self.covered_spaces) / self.total_spaces
         
-        if (np.any(self.observation["sensor"][2:] < 0.1) ): # if any distance sensor is low penalize
+        if np.all(self.observation["velocity"] > 0):
+            reward += .25 # small reward for driving forwa
+        
+        if (np.any(self.observation["sensor"] < 0.1) ): # if any distance sensor is low penalize
             reward += -abs(np.mean(np.abs([self.actions[0], self.actions[1]]))) / self.velocity_ranges[1]
+            self.collision_safeguard += 1
         elif (self.bumper_left == 1) or (self.bumper_right == 0):
              reward += -abs(np.mean(np.abs([self.actions[0], self.actions[1]]))) / self.velocity_ranges[1]
+             self.collision_safeguard += 1
+        else:
+            self.collision_safeguard = 0
+        if self.collision_safeguard >= 15:
+            reward += -50    
+        
         if self.invalid_action:
             reward += -100
             self.invalid_action = False
@@ -511,6 +522,13 @@ class WebotsSimulation(Simulation):
             #print(f"Actions: {self.actions[0], self.actions[1]}")
             self.actions[0] = 0
             self.actions[1] = 0 # set invalid action to 0 instead
+    
+    def get_truncation(self):
+        if self.collision_safeguard > 20:
+            return True
+        else:
+            return False
+
 
 
             
