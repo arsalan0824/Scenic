@@ -10,7 +10,13 @@ from controller import Supervisor
 
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3 import SAC,PPO
+
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.evaluation import evaluate_policy
+
+import matplotlib.pyplot as plt
+
+
 
  
 supervisor = Supervisor() # Collect the Supervisor node from the simulation
@@ -24,8 +30,8 @@ scenario = scenic.scenarioFromFile(prefix +  "examples/webots/vacuum/vacuum.scen
 
 
 
-action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))  # Defines the possible actions of the agent
-observation_space = gym.spaces.Box(low=np.array([-1,-1,0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1,1,1]),shape=(9,),dtype=np.float64) # defines the range of observations of the agent
+action_space = gym.spaces.Discrete(n=6)  # Defines the possible actions of the agent
+observation_space = gym.spaces.Box(low=np.array([0,0,0,0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1,1,5.09,5.09]),shape=(10,),dtype=np.float64) # defines the range of observations of the agent
 max_steps = 10000
 env = ScenicGymEnv(scenario, 
                    simulator, 
@@ -33,28 +39,31 @@ env = ScenicGymEnv(scenario,
                    max_steps=max_steps, 
                    action_space=action_space,
                    observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
+
 env = Monitor(env)
 
-episodes= 40
+episodes=80
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
-model = PPO("MlpPolicy", env, verbose=2) # Create an instance of an agent 
-#model.set_parameters("PPO_vacuum_agent")   # make green when training (long time)----------------
-model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps 
-model.save("PPO_vacuum_agent")               # Save the model after training; u want to make it green when testing--------------
-rewards_per_step = np.array(env.get_episode_rewards()) / np.array(env.get_total_steps())
-negative = False
-for i in range(len(rewards_per_step)):
-    if rewards_per_step[i] <= 0:
-        negative = True
-        break
-total_pc = 0
-for i in range(1, len(rewards_per_step)):
-    total_pc += (rewards_per_step[i] - rewards_per_step[i - 1]) / np.abs(rewards_per_step[i - 1])
-print("Average normalized percent difference: " + str(total_pc / (len(rewards_per_step) - 1)))
+model = PPO("MlpPolicy", env, verbose=2,device='cpu', n_steps=2048)  # Create an instance of an agent 
+#model = PPO.load("PPO_vacuum_agent")
+model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
+model.save("PPO_vacuum_agent")                       # Save the model after training
+
+mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False)
+
+print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 
+episodic_rewards = env.get_episode_rewards
 
+fig,ax = plt.subplots()
 
+ax.scatter(len(episodic_rewards), episodic_rewards)
 
+ax.set(xlim=(np.min(episodic_rewards+100)),
+       ylim=(np.max(episodic_rewards+100)))
+plt.show()
+file_name = "MLP_policy" + str(total_timesteps)  + ".png"
+plt.save(file_name,format='png')

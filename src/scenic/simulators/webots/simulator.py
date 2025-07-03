@@ -33,12 +33,12 @@ from controller import DistanceSensor
 
 
 class WebotsSimulator(Simulator):
-
     """`Simulator` object for Webots.
 
     Args:
         supervisor: Supervisor node handle from the Webots Python API.
     """
+
     def __init__(self, supervisor):
         super().__init__()
         self.supervisor = supervisor
@@ -69,15 +69,8 @@ class WebotsSimulation(Simulation):
             exposed for the use of scenarios which need to call Webots APIs
             directly; e.g. :scenic:`simulation().supervisor.setLabel({...})`.
     """
-    
+
     def __init__(self, scene, supervisor, coordinateSystem=ENU, *, timestep, **kwargs):
-        self.best_coverage = 0, 0
-        self.total_reward = 0
-        self.total_steps = 0
-        self.collisions = 0
-        self.collision_guard = 0
-        self.time_elapsed = 0
-        self.total_steps = 0
         self.supervisor = supervisor
         self.coordinateSystem = coordinateSystem
         self.mode2D = scene.compileOptions.mode2D
@@ -99,13 +92,9 @@ class WebotsSimulation(Simulation):
         self.sensor_left = self.supervisor.getDevice("cliff_left")
         self.sensor_front_left = self.supervisor.getDevice("cliff_front_left")
 
+        self.sensor_back = self.supervisor.getDevice("cliff_back")
         self.sensor_actual_left = self.supervisor.getDevice("actual_left")
         self.sensor_actual_right = self.supervisor.getDevice("actual_right")
-
-        self.sensor_back = self.supervisor.getDevice("cliff_back")
-
-        self.bumper_left = self.supervisor.getDevice("bumper_left")
-        self.bumper_right = self.supervisor.getDevice("bumper_right")
 
         self.left_motor.setPosition(float('inf'))
         self.right_motor.setPosition(float('inf'))
@@ -116,24 +105,29 @@ class WebotsSimulation(Simulation):
 
         self.covered_spaces = []
         self.invalid_action = False
+        self.total_reward = 0
 
         self.enable_sensors = False
-        self.actions = [0,0]
-        self.observation = np.zeros(9)  # TODO Need to fix obs and initialization
+        self.actions = 0
+        self.observation = np.zeros(10) # TODO Need to fix obs and initialziation
         self.ms = round(1000 * self.timestep)
 
-        # --- ADD THESE LINES FOR COVERAGE TRACKING ---
         self.room_width = 5.09    # meters — change as needed
         self.room_length = 5.09   # meters — change as needed
-        self.granularity = 0.05    # meters (matches rounding precision)
+        self.granularity = 0.1    # meters (matches rounding precision)
 
-        self.total_spaces = int((self.room_width / self.granularity) * (self.room_length / self.granularity))
+        self.total_spaces = (2 * np.floor(self.room_width / (2*self.granularity)) + 1)**2 
+        self.best_coverage = 0,0
+        self.collisions = 0
+        self.total_steps = 0
+
+        self.collision_safegaurd = 0
+ 
 
         super().__init__(scene, timestep=timestep, **kwargs)
 
     def setup(self):
         super().setup()
-
         # Reset Webots simulation
         self.supervisor.simulationResetPhysics()
 
@@ -142,9 +136,6 @@ class WebotsSimulation(Simulation):
         dx = pos[0]
         dy = pos[1]
         return math.sqrt(dx*dx + dy*dy)
-
-
-
     def createObjectInSimulator(self, obj):
         if not hasattr(obj, "webotsName"):
             return  # not a Webots object
@@ -161,8 +152,6 @@ class WebotsSimulation(Simulation):
             objFilePath = path.join(self.tmpMeshDir, f"{self.nextAdHocObjectId}.obj")
             trimesh.exchange.export.export_mesh(objectScaledMesh, objFilePath)
 
-
-
             name = self._getAdhocObjectName(self.nextAdHocObjectId)
             protoName = (
                 "ScenicObjectWithPhysics" if isPhysicsEnabled(obj) else "ScenicObject"
@@ -178,7 +167,6 @@ class WebotsSimulation(Simulation):
                 }}
                 """
             )
-
             rootNode = self.supervisor.getRoot()
             rootChildrenField = rootNode.getField("children")
             rootChildrenField.importMFNodeFromString(-1, protoDef)
@@ -268,41 +256,59 @@ class WebotsSimulation(Simulation):
                 controllerField.setSFString(obj.controller)
             elif obj.resetController:
                 webotsObj.restartController()
+    def step(self):
+        """
+        action: int (0=forward, 1=backward, 2=turn left, 3=turn right)
+        """
+        #print(f"Executing discrete action: {self.actions}") #print which acion is it doing
 
-    def get_coverage_metric(self):
-        # Number of unique positions visited
-        covered_count = len(self.covered_spaces)
-        # Coverage ratio (fraction of total spaces covered)
-        coverage_ratio = covered_count / self.total_spaces
-        # Optionally: return both count and percentage
-        return covered_count, coverage_ratio
+        speed = 10 
 
-    def step(self): # action should be some low level control commands for the robot
-        if not self.enable_sensors: 
-               # print("Protections failed sensors were not initialized before calling") 
-               # TODO more elegant fix here, sensor need to be adaquetly initialized before the simlation begins stepping
-                self.init_step()
+        # Map discrete action to wheel velocities
+        if self.actions == 0:          # move forward normal
+            self.left_motor.setVelocity(speed)
+            self.right_motor.setVelocity(speed)
+        elif self.actions == 1:        # move backward
+            self.left_motor.setVelocity(-speed)
+            self.right_motor.setVelocity(-speed)
+        elif self.actions == 2:        # turn left
+            self.left_motor.setVelocity(-speed)
+            self.right_motor.setVelocity(speed)
+        elif self.actions == 3:        # turn right
+            self.left_motor.setVelocity(speed)
+            self.right_motor.setVelocity(-speed)
+        elif self.actions == 4:        # move forward fast
+            self.left_motor.setVelocity(1.5*speed)
+            self.right_motor.setVelocity(1.5*speed)    
+        elif self.actions == 5:        # move forward slow
+            self.left_motor.setVelocity(0.5*speed)
+            self.right_motor.setVelocity(0.5*speed)        
+        #else:
+        #   self.actions = [0, 0]  # stop or invalid action fallback
+
+        if not self.enable_sensors:
+            self.init_step()
+
         self.total_steps += 1
-        # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
-        self.observation = np.array([self.actions[0], self.actions[1], self.sensor_left.getValue()/800, self.sensor_right.getValue()/800,  self.sensor_actual_left.getValue()/800,  self.sensor_actual_right.getValue()/800,  # ensures that null values are not returned from unintialized sensors
-                self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800])     
-        self.transform_vel()
-        self.left_motor.setVelocity(self.actions[0]) 
-        self.right_motor.setVelocity(self.actions[1])
-        self.supervisor.step(self.ms)
+
+        self.observation = np.array([
+            self.sensor_left.getValue() / 800,
+            self.sensor_right.getValue() / 800,
+            self.sensor_front_right.getValue() / 800,
+            self.sensor_front_left.getValue() / 800,
+            self.sensor_back.getValue() / 800,
+            self.sensor_actual_left.getValue() / 800,
+            self.sensor_actual_right.getValue() / 800,
+            self.pos[0], self.pos[1],
+            len(self.covered_spaces) / self.total_spaces
+        ])
+
+        self.supervisor.step(self.ms) #imp
+
         covered_count, coverage_ratio = self.get_coverage_metric()
+
         if coverage_ratio > self.best_coverage[1]:
             self.best_coverage = covered_count, coverage_ratio
-        self.total_steps += 1
-        self.time_elapsed += self.timestep
-
-        if np.any(self.observation[2:] < 0.1):
-            self.collisions += 1
-    
-    
-
-       
-
 
     def init_step(self):
         """
@@ -314,15 +320,15 @@ class WebotsSimulation(Simulation):
         self.sensor_front_left.enable(self.ms)
         self.sensor_left.enable(self.ms)
 
-        self.bumper_left.enable(self.ms)
-        self.bumper_right.enable(self.ms)
+
+        self.sensor_back.enable(self.ms)
 
         self.sensor_actual_left.enable(self.ms)
         self.sensor_actual_right.enable(self.ms)
 
-        self.sensor_back.enable(self.ms)
-
         self.supervisor.step(self.ms) # Need to step the simulation once after initializing the sensors!
+        pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
+        self.pos = pos # initialize the position
         self.enable_sensors = True
 
 
@@ -365,84 +371,106 @@ class WebotsSimulation(Simulation):
         return values
 
     def destroy(self):
-        print(f"this is the metric: {self.metric()}")
         # Destroy adhoc objects generated at the beginning of the simulation
-        episode_length = 40 #REMEMBER TO CHANGE FOR PRINTAS TO WORK PROPERLY
-        # # if(self.total_steps % episode_length == 0):  #green to see coverage
-        #     print(self.total_spaces) #green to see coverage
-        print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")  
+        print(f" total episode reward was {self.total_reward}")
+
+        print(f"This is the metric: {self.metric()}")
+        print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%) \n")
+
         for i in range(1, self.nextAdHocObjectId):
             name = self._getAdhocObjectName(i)
             node = self.supervisor.getFromDef(name)
             if node is not None: # ensure that the node actually exisits in the simulation before destroying it
                 node.remove()
-            self.step() # TODO this fixe crashing error on repeated reset calls! I DO NOT KNOW WHY.... temp fix, need to figure out underlying cause
+            self.supervisor.step(self.ms) # TODO this fixe crashing error on repeated reset calls! I DO NOT KNOW WHY.... temp fix, need to figure out underlying cause
     
     def _getAdhocObjectName(self, i: int) -> str:
         return f"SCENIC_ADHOC_{i}"
 
-    def get_coverage_reward(self, granularity, pos, circle: bool):
-        if not circle:
-            if pos not in self.covered_spaces:
-                self.covered_spaces.append(pos)
-                return 1
-            else:
-                return 0
-        else:
-            reward = 0
-            #important parameter
-            radius = .335/2
-            x_range = np.arange(pos[0] - radius - granularity, pos[0] + radius + granularity, granularity)
-            y_range = np.arange(pos[1] - radius - granularity, pos[1] + radius + granularity, granularity)
-            x_range_combined, y_range_combined = np.meshgrid(x_range, y_range, indexing="xy")
-            mask = (x_range_combined - pos[0])**2 + (y_range_combined - pos[1])**2 <= radius**2
-            circle_points = [
-                (
-                    round(granularity * round(x / granularity), 3),
-                    round(granularity * round(y / granularity), 3)
-                )
-                for x, y in np.vstack((x_range_combined[mask],
-                                    y_range_combined[mask])).T
-            ]
-            for point in circle_points:
-                if(point not in self.covered_spaces):
-                    reward += 1
-                    self.covered_spaces.append(point)
-            return reward
-
-    def get_reward(self):
-        pos_exact = np.array(self.supervisor_node.getPosition()[:2])
-        pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
+    def get_coverage_reward(self, pos):
         reward = 0
-        reward += self.get_coverage_reward(self.granularity, [pos[0], pos[1]], True) / (np.linalg.norm(pos_exact) +1)
-        #print(1/(np.linalg.norm(pos_exact)+1)) #this is to see distance from center
+        #important parameter
+        radius = .335/2
+        x_range = np.arange(pos[0] - radius - self.granularity, pos[0] + radius + self.granularity, self.granularity)
+        y_range = np.arange(pos[1] - radius - self.granularity, pos[1] + radius + self.granularity, self.granularity)
+        x_range_combined, y_range_combined = np.meshgrid(x_range, y_range, indexing="xy")
+        mask = (x_range_combined - pos[0])**2 + (y_range_combined - pos[1])**2 <= radius**2
+        circle_points = [
+            (
+                round(self.granularity * round(x / self.granularity), 3),
+                round(self.granularity * round(y / self.granularity), 3)
+            )
+            for x, y in np.vstack((x_range_combined[mask],
+                                y_range_combined[mask])).T
+        ]
+        for point in circle_points:
+            if(point not in self.covered_spaces):
+                reward += 1
+                self.covered_spaces.append(point)
+        return reward
+    
+    def metric(self):
+
+        avg_reward = self.total_reward / self.total_steps if self.total_steps > 0 else 0
+        exploration = len(self.covered_spaces)
+        collision_rate = self.collisions / self.total_steps if self.total_steps > 0 else 0
+
+        score = avg_reward - 10 * collision_rate + 0.1 * exploration
+
+        return {
+            "total_reward": self.total_reward,
+            "average_reward": avg_reward,
+            "steps": self.total_steps,
+            "collision_count": self.collisions,
+            "exploration_score": exploration,
+            "final_score": score
+        }
+    
+    def get_coverage_metric(self):
+        # Number of unique positions visited
+        covered_count = len(self.covered_spaces)
+        # Coverage ratio (fraction of total spaces covered)
+        coverage_ratio = covered_count / self.total_spaces
+        # Optionally: return both count and percentage
+        return covered_count, coverage_ratio  
+
+
+    def get_reward(self): # "any dummy for now will be okay"
+        """
+        Calculate the reward based off of the current state
+        """
+        pos_exact = np.array(self.supervisor_node.getPosition()[:2])        
+        pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
+        self.pos = pos
+        reward = 0
+        reward += self.get_coverage_reward([pos[0], pos[1]])
+
         pos = np.array(self.supervisor_node.getPosition()[:2])
         pos = np.round(pos, decimals=2)
-        if [pos[0], pos[1]] not in self.covered_spaces:
-            self.covered_spaces.append([pos[0], pos[1]])
-            reward = (len(self.covered_spaces))+5
-        else:
-            reward = -1
+        #print(1/(np.linalg.norm(pos_exact)+1)) #this is to see distance from center
+        reward += (1/(np.linalg.norm(pos_exact)+1))
         if self.invalid_action:
-            reward += -100
+            reward = -100
             self.invalid_action = False
-        if np.any(self.observation[2:] < 0.1):
-            reward += -10
-            self.collision_guard += 1
-        elif self.bumper_left.getValue() == 1 or self.bumper_right.getValue() == 1:
-            velocity_magnitude = np.mean(np.abs([self.actions[0], self.actions[1]]))
-            reward += -abs(velocity_magnitude)
-            self.collision_guard += 1
-        else:
-            self.collision_guard = 0
-    
+
+        if (np.any(self.observation[:7] < 0.15) ): # if any distance sensor is low penalize
+            vm = -1
+            reward += -abs(vm)/self.velocity_ranges[1]
+            self.collisions += 1 
+            self.collision_safegaurd += 1 
+        elif(np.any(self.observation[5:7] < .075)): # allow the side sensors to be closer that the front sensors
+            self.collisions += 1
+            self.collision_safegaurd += 1
+            reward += -abs(np.mean(self.actions))
+
+        if self.collision_safegaurd > 15:
+            reward += -100
+
+        #print(f" sensor data {self.observation[2:9]}")
+
+
         self.total_reward += reward
-
-        #print(f"Current reward: {reward:.4f}") #this prints the reward
-
         return reward
-
-
     
     def get_info(self):
         """
@@ -463,7 +491,6 @@ class WebotsSimulation(Simulation):
         """
         self.actions[0] = self.actions[0] * self.velocity_ranges[1] 
         self.actions[1] = self.actions[1] * self.velocity_ranges[1]
-
         if np.any(np.abs(self.actions) > 16.139):
             print("Error with velocity comp:")
             self.invalid_action = True
@@ -471,32 +498,14 @@ class WebotsSimulation(Simulation):
             self.actions[0] = 0
             self.actions[1] = 0 # set invalid action to 0 instead
 
+
     def get_truncation(self):
-        if self.collision_guard > 20:
+        if self.collision_safegaurd > 20:
             return True
         else:
             return False
-    def metric(self):
-        avg_reward = self.total_reward / self.total_steps if self.total_steps > 0 else 0
-        exploration = len(self.covered_spaces)
-        collision_rate = self.collisions / self.total_steps if self.total_steps > 0 else 0
 
-        score = avg_reward - 10 * collision_rate + 0.1 * exploration
-
-        return {
-            "total_reward": self.total_reward,
-            "average_reward": avg_reward,
-            "steps": self.total_steps,
-            "time_elapsed": self.time_elapsed,
-            "collision_count": self.collisions,
-            "exploration_score": exploration,
-            "final_score": score
-        }
-
-
-
-
-
+            
 
 def getFieldSafe(webotsObject, fieldName):
     """Get field from webots object. Return null if no such field exists.
@@ -532,4 +541,3 @@ def isPhysicsEnabled(webotsObject):
     if isinstance(webotsObject.webotsAdhoc, dict):
         return webotsObject.webotsAdhoc.get("physics", True)
     raise TypeError(f"webotsAdhoc must be None or a dictionary")
-
