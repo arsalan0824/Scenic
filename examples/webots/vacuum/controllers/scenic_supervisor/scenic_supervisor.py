@@ -42,33 +42,28 @@ env = ScenicGymEnv(scenario,
 
 env = Monitor(env)
 
-episodes=80
+episodes=200
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
-model = PPO("MlpPolicy", env, verbose=2,device='cpu', n_steps=2048)  # Create an instance of an agent 
-#model = PPO.load("PPO_vacuum_agent")
+model = PPO("MlpPolicy", env, verbose=2,device='cpu', n_steps=2048,seed=20)  # Create an instance of an agent 
+#model = PPO.load("PPO_vacuum_agent", env=env, verbose=2, device="cpu")
 model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
 model.save("PPO_vacuum_agent")                       # Save the model after training
 
-mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False)
+episodic_rewards = env.get_episode_rewards()
 
-print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
-
-
-episodic_rewards = env.get_episode_rewards
-
+print(episodic_rewards)
 fig,ax = plt.subplots()
 
-ax.scatter(len(episodic_rewards), episodic_rewards)
+ax.stem(range(len(episodic_rewards)), episodic_rewards)
 
-ax.set(xlim=(np.min(episodic_rewards+100)),
-       ylim=(np.max(episodic_rewards+100)))
 plt.show()
 file_name = "MLP_policy" + str(total_timesteps)  + ".png"
-plt.save(file_name,format='png')
+plt.savefig(file_name,format='png')
 
 
+mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=3,render=False)
 
-
+print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
