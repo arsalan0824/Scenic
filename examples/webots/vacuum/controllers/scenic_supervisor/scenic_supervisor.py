@@ -58,9 +58,10 @@ fig,ax = plt.subplots()
 
 ax.stem(range(len(episodic_rewards)), episodic_rewards)
 
-plt.show()
 file_name = "MLP_policy" + str(total_timesteps)  + ".png"
 plt.savefig(file_name,format='png')
+plt.show()
+
 
 
 mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=3,render=False)
