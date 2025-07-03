@@ -19,7 +19,7 @@ front_wall = new Wall at (0, wall_offset, 0.25), facing toward floor
 back_wall = new Wall at (0, -wall_offset, 0.25), facing toward floor
 
 # Place vacuum on floor
-ego = new Vacuum on floor
+ego = new Vacuum on floor, at (0,0,0)
 
 
 """
