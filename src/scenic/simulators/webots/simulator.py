@@ -457,9 +457,9 @@ class WebotsSimulation(Simulation):
             reward += .01 # small reward for driving forward
 
         
-        print(distances)
-        
-        if (np.any(distances < .17)): #check distance from all objects - Robot is .33 m so radisu is 
+
+        print(self.observation[2:9])
+        if (np.any(self.observation[2:9])): #check distance from all objects - Robot is .33 m so radisu is 
             self.collisions += 1 # total collisions per episode
             self.collision_safegaurd += 1  # total sequential collisions
             reward += -np.mean(np.abs(self.actions))
