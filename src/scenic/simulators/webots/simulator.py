@@ -84,22 +84,14 @@ class WebotsSimulation(Simulation):
 
         self.left_motor = self.supervisor.getDevice("right wheel motor")
         self.right_motor = self.supervisor.getDevice("left wheel motor")
-
         self.sensor_right = self.supervisor.getDevice("cliff_right")
         self.sensor_front_right = self.supervisor.getDevice("cliff_front_right")
-
         self.sensor_left = self.supervisor.getDevice("cliff_left")
         self.sensor_front_left = self.supervisor.getDevice("cliff_front_left")
-
         self.sensor_back = self.supervisor.getDevice("cliff_back")
         self.sensor_actual_left = self.supervisor.getDevice("actual_left")
         self.sensor_actual_right = self.supervisor.getDevice("actual_right")
 
-        self.left_motor.setPosition(float('inf'))
-        self.right_motor.setPosition(float('inf'))
-
-        self.left_motor.setVelocity(0)
-        self.right_motor.setVelocity(0)
         self.velocity_ranges = [0,16.129]
 
         self.covered_spaces = []
@@ -108,7 +100,7 @@ class WebotsSimulation(Simulation):
 
         self.enable_sensors = False
         self.actions = [0,0]
-        self.observation = np.zeros(12) # TODO Need to fix obs and initialziation
+        self.observation = np.zeros(15) # TODO Need to fix obs and initialziation
         self.ms = round(1000 * self.timestep)
 
         self.room_width = 5.09    # meters — change as needed
@@ -265,14 +257,18 @@ class WebotsSimulation(Simulation):
 
         self.total_steps += 1
 
+        rot = np.array(self.supervisor_node.getField("rotation").getSFVec2f(), dtype=np.float32)
+
         self.previous_actions = [self.left_motor.getVelocity(), self.right_motor.getVelocity()]
 
         self.observation = np.array([self.actions[0], self.actions[1], # velocity
                                      self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, 
                                      self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, 
                                      self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
-                                     self.sensor_actual_right.getValue()/800, self.pos[0], self.pos[1],
-                                     len(self.covered_spaces)/ self.total_spaces])       
+                                     self.sensor_actual_right.getValue()/800, 
+                                     rot[0], rot[1], rot[2], rot[3],
+                                     self.pos[0]/5, self.pos[1]/5  # normalize position
+                                        ])       
     
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
@@ -299,6 +295,14 @@ class WebotsSimulation(Simulation):
 
         self.sensor_actual_left.enable(self.ms)
         self.sensor_actual_right.enable(self.ms)
+
+        self.left_motor.setPosition(float('inf'))
+        self.right_motor.setPosition(float('inf'))
+
+        self.left_motor.setVelocity(0)
+        self.right_motor.setVelocity(0)
+
+        self.supervisor_node.enablePoseTracking(self.ms)
 
         self.supervisor.step(self.ms) # Need to step the simulation once after initializing the sensors!
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
@@ -413,8 +417,24 @@ class WebotsSimulation(Simulation):
         """
         Calculate the reward based off of new points covered in the space
         """
+    
+        distances = np.array([self.records["left_wall_distance"][self.total_steps - 1][1],
+                     self.records["back_wall_distance"][self.total_steps - 1][1],
+                     self.records["front_wall_distance"][self.total_steps - 1][1],
+                     self.records["right_wall_distance"][self.total_steps - 1][1] 
+                     ])# might want to make this more general for n objects in sim
+             
+
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
         self.pos = pos
+
+        # DJF stuff
+        """
+        vacuum = self.objects[0]
+        table = self.objects[...]
+        vacuum.distanceTo(table)
+        """
+        # end DJF stuff
 
         reward = 0
         reward += self.get_coverage_reward([pos[0], pos[1]])
@@ -435,8 +455,11 @@ class WebotsSimulation(Simulation):
 
         if np.all(self.observation[:2] > 0):
             reward += .01 # small reward for driving forward
+
         
-        if (np.any(self.observation[2:7] < 0.15) ) or (np.any(self.observation[7:9] < .05)): # if any distance sensor is low penalize
+        print(distances)
+        
+        if (np.any(distances < .17)): #check distance from all objects - Robot is .33 m so radisu is 
             self.collisions += 1 # total collisions per episode
             self.collision_safegaurd += 1  # total sequential collisions
             reward += -np.mean(np.abs(self.actions))
@@ -490,6 +513,7 @@ class WebotsSimulation(Simulation):
             
 
 def getFieldSafe(webotsObject, fieldName):
+
     """Get field from webots object. Return null if no such field exists.
 
     Needed to workaround this issue (https://github.com/cyberbotics/webots/issues/5646)

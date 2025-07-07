@@ -32,7 +32,7 @@ scenario = scenic.scenarioFromFile(prefix +  "examples/webots/vacuum/vacuum.scen
 
 
 action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))  # Defines the possible actions of the agent
-observation_space = gym.spaces.Box(low=np.array([-1,-1,0,0,0,0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1,1,1,1,5.09,5.09]),shape=(12,),dtype=np.float64) # defines the range of observations of the agent
+observation_space = gym.spaces.Box(low=np.array([-1,-1,0,0,0,0,0,0,0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]),shape=(15,),dtype=np.float64) # defines the range of observations of the agent
 max_steps = 10000
 env = ScenicGymEnv(scenario, 
                    simulator, 
@@ -43,14 +43,14 @@ env = ScenicGymEnv(scenario,
 
 env = Monitor(env)
 
-episodes=50
+episodes=40
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
 model = PPO("MlpPolicy", env, verbose=2, seed=20)  # Create an instance of an agent 
-#model = PPO.load("PPO_vacuum_agent", env=env, verbose=2, device="cpu",n_steps=2048,use_sde=True)
+#model = PPO.load("PPO_vacuum_agent", env=env, verbose=2)
 model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
-model.save("PPO_vacuum_agent")                       # Save the model after training
+#model.save("PPO_vacuum_agent")                       # Save the model after training
 
 episodic_rewards = env.get_episode_rewards()
 
@@ -59,7 +59,7 @@ fig,ax = plt.subplots()
 
 ax.stem(range(len(episodic_rewards)), episodic_rewards)
 
-file_name = "MLP_policy" + str(total_timesteps)  + ".png"
+file_name = "PPO_policy" + str(total_timesteps)  + ".png"
 plt.savefig(file_name,format='png')
 plt.show()
 
@@ -70,5 +70,5 @@ print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 end = time.time()
 
-print(f" training time was {end - start} for {total_timesteps} timesteps")
+print(f" training time was {(end - start) / 60} minutes for {total_timesteps} timesteps")
 
