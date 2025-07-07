@@ -31,6 +31,11 @@ from scenic.core.vectors import Vector
 from scenic.simulators.webots.utils import ENU, WebotsCoordinateSystem
 from controller import DistanceSensor
 
+from trimesh.creation import box
+
+import math, numpy as np
+from trimesh.proximity import closest_point
+from trimesh.proximity import ProximityQuery
 file_path = "../../../../../../output.txt"
 
 def ptf(message):
@@ -89,8 +94,8 @@ class WebotsSimulation(Simulation):
     """
     def __init__(self, scene, supervisor, coordinateSystem=ENU, *, timestep, **kwargs):
         self.best_coverage = 0,0
-        self.room_width = 5.09    # meters — change as needed
-        self.room_length = 5.09   # meters — change as needed
+        self.room_width = 5.    # meters — change as needed
+        self.room_length = 5.   # meters — change as needed
         self.granularity = 0.05    # meters (matches rounding precision)
         self.total_spaces = (2 * np.floor(self.room_width / (2*self.granularity)) + 1)**2 - 4 #-4 for each of the corners
         self.total_reward = 0
@@ -147,6 +152,8 @@ class WebotsSimulation(Simulation):
             # "sectional_coverage":np.zeros(16),
             # "current_section": 0
         } # TODO Need to fix obs and initialziation
+        self.prox_checks = []
+        self.spheres = []
         super().__init__(scene, timestep=timestep, **kwargs)
 
     def setup(self):
@@ -317,6 +324,28 @@ class WebotsSimulation(Simulation):
         #     print("Step: " + str(self.total_steps))
         #     print(f"Actions: {self.actions[0], self.actions[1]}")
         #     print(f"Observations: {self.observation}")
+        
+    def getObjects(self):
+        for obj in self.objects:
+            if "floor" in str(obj).lower() or "vacuum" in str(obj).lower():
+                continue
+            x, y, z = obj.position
+            yaw = obj.heading
+            c, s = math.cos(yaw), math.sin(yaw)
+            # 4×4 yaw+translate
+            T = np.array([
+                [ c, -s, 0, x],
+                [ s,  c, 0, y],
+                [ 0,  0, 1, z],
+                [ 0,  0, 0, 1]
+            ])
+            base = obj.shape._mesh                     
+            dims = (obj.width, obj.length, obj.height)  
+            mesh = MeshVolumeRegion(mesh=base, dimensions=dims).mesh
+            mesh_in_world = mesh.copy()
+            mesh_in_world.apply_transform(T)
+            self.prox_checks.append(ProximityQuery(mesh_in_world))
+            self.spheres.append([obj.position] + [mesh_in_world.bounding_sphere.primitive.radius])
 
     def init_step(self):
         """
@@ -338,6 +367,7 @@ class WebotsSimulation(Simulation):
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
         self.pos = pos # initialize the position
         self.enable_sensors = True
+        self.getObjects()
 
 
     def getProperties(self, obj, properties):
@@ -455,7 +485,15 @@ class WebotsSimulation(Simulation):
             if reward == 0:
                 reward += -.001
             return reward
-        
+    
+    def checkCollisions(self):
+        minDist = 0.01
+        for i in range(len(self.prox_checks)):
+            if math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
+                continue    
+            if(abs(self.prox_checks[i].signed_distance(np.array([self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]]))) < .335/2 + minDist):
+                return True
+        return False
 
     def get_reward(self): # "any dummy for now will be okay"
         """
@@ -466,14 +504,14 @@ class WebotsSimulation(Simulation):
         reward = self.get_coverage_reward(self.granularity, [pos[0], pos[1]])
         
         if np.all(self.observation["velocity"] > 0):
-            reward += .1 # small reward for driving forwa
+            reward += .2 # small reward for driving forwa
         
-        if (np.any(self.observation["sensor"][:5] < 0.1) ): # if any distance sensor is low penalize
+        if (self.checkCollisions()): # if any distance sensor is low penalize
             reward += -1
             self.collision_safeguard += 1
         else:
             self.collision_safeguard = 0
-        if self.collision_safeguard >= 90:
+        if self.collision_safeguard >= 40:
             reward += -100
         
         if self.invalid_action:
@@ -510,7 +548,7 @@ class WebotsSimulation(Simulation):
             self.actions[1] = 0 # set invalid action to 0 instead
     
     def get_truncation(self):
-        if self.collision_safeguard > 100:
+        if self.collision_safeguard > 50:
             return True
         else:
             return False

@@ -55,11 +55,11 @@ total_timesteps = max_steps * episodes
 print(total_timesteps)
 
 model = PPO("MultiInputPolicy", env, verbose=2) # Create an instance of an agent 
-#model.set_parameters("PPO_vacuum_agent")
-model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
-model.save("PPO_vacuum_agent")               # Save the model after training
+model.set_parameters("PPO_vacuum_agent")
+#model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
+#model.save("PPO_vacuum_agent")               # Save the model after training
 
-mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False)
+mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False, deterministic=False)
 print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 episode_rewards = env.get_episode_rewards()
@@ -69,7 +69,7 @@ for i in range(1, len(episode_rewards)):
     total_pc += (episode_rewards[i] - episode_rewards[i - 1]) / np.abs(episode_rewards[i - 1])
 print("Average normalized percent difference: " + str(total_pc / (len(episode_rewards) - 1)))
 
-episodic_rewards = env.get_episode_rewards
+episodic_rewards = env.get_episode_rewards()
 
 fig,ax = plt.subplots()
 
