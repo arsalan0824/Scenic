@@ -143,8 +143,9 @@ class WebotsSimulation(Simulation):
         self.observation = {
             "velocity": np.zeros(2), 
             "sensor": np.zeros(7),
-            "position": np.zeros(2), "sectional_coverage":np.zeros(16),
-            "current_section": 0
+            "position": np.zeros(2),
+            # "sectional_coverage":np.zeros(16),
+            # "current_section": 0
         } # TODO Need to fix obs and initialziation
         super().__init__(scene, timestep=timestep, **kwargs)
 
@@ -298,8 +299,8 @@ class WebotsSimulation(Simulation):
                 self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
                                      self.sensor_actual_right.getValue()/800]),       
             "position": np.array(pos),
-            "sectional_coverage": self.sectional_coverage / (self.total_spaces / 16),
-            "current_section": self.posToIdx(pos)
+            # "sectional_coverage": self.sectional_coverage / (self.total_spaces / 16),
+            # "current_section": self.posToIdx(pos)
         }
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
@@ -312,10 +313,10 @@ class WebotsSimulation(Simulation):
 
         if np.any(self.observation["sensor"][:5] < 0.1):
             self.collisions += 1
-        if(self.total_steps % 500 == 0) :
-            print("Step: " + str(self.total_steps))
-            print(f"Actions: {self.actions[0], self.actions[1]}")
-            print(f"Observations: {self.observation}")
+        # if(self.total_steps % 500 == 0) :
+        #     print("Step: " + str(self.total_steps))
+        #     print(f"Actions: {self.actions[0], self.actions[1]}")
+        #     print(f"Observations: {self.observation}")
 
     def init_step(self):
         """

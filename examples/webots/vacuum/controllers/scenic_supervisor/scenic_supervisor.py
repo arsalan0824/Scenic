@@ -38,8 +38,8 @@ observation_space = gym.spaces.Dict({
     "velocity": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
     "sensor": gym.spaces.Box(low=np.array([0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1]),shape=(7,),dtype=np.float64), # defines the range of observations of the agent
     "position": gym.spaces.Box(low=np.array([-2.6, -2.6]), high=np.array([2.6, 2.6]), shape=(2,),dtype=np.float64),
-    "sectional_coverage": gym.spaces.Box(low=np.zeros(16), high=np.ones(16), shape=(16,),dtype=np.float64),
-    "current_section": gym.spaces.Box(low=np.array([0]), high=np.array([15]), shape=(1,),dtype=int)
+    # "sectional_coverage": gym.spaces.Box(low=np.zeros(16), high=np.ones(16), shape=(16,),dtype=np.float64),
+    # "current_section": gym.spaces.Box(low=np.array([0]), high=np.array([15]), shape=(1,),dtype=int)
 })
 max_steps = 10000
 env = ScenicGymEnv(scenario, 
@@ -50,12 +50,12 @@ env = ScenicGymEnv(scenario,
                    observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
 env = Monitor(env)
 
-episodes= 60
+episodes= 40
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
 model = PPO("MultiInputPolicy", env, verbose=2) # Create an instance of an agent 
-model.set_parameters("PPO_vacuum_agent")
+#model.set_parameters("PPO_vacuum_agent")
 model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
 model.save("PPO_vacuum_agent")               # Save the model after training
 
