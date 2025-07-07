@@ -21,9 +21,21 @@ back_wall = new Wall at (0, -wall_offset, 0.25), facing toward floor
 # Place vacuum on floor
 ego = new Vacuum on floor, at (0,0,0)
 
+record distance to left_wall as left_wall_distance
+record distance to right_wall as right_wall_distance
+record distance to front_wall as front_wall_distance
+record distance to back_wall as back_wall_distance
 
 """
+monitor RewardMonitor():
+    while True:
+        d = distance from ego to left_wall > .05
+        wait
 
+require monitor RewardMonitor()
+
+"""
+"""
 # Create a "safe zone" around the vacuum so that it does not start stuck
 safe_zone = CircularRegion(ego.position, radius=1)
 
