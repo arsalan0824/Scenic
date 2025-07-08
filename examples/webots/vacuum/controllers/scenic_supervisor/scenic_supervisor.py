@@ -41,7 +41,7 @@ observation_space = gym.spaces.Dict({
     #"sectional_coverage": gym.spaces.Box(low=np.zeros(16), high=np.ones(16), shape=(16,),dtype=np.float64),
     # "current_section": gym.spaces.Box(low=np.array([0]), high=np.array([15]), shape=(1,),dtype=int)
 })
-max_steps = 250
+max_steps = 1000
 env = ScenicGymEnv(scenario, 
                    simulator, 
                    render_mode=None, 
@@ -50,7 +50,7 @@ env = ScenicGymEnv(scenario,
                    observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
 env = Monitor(env)
 
-episodes= 5
+episodes= 2
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 

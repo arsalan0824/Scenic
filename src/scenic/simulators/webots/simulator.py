@@ -340,8 +340,6 @@ class WebotsSimulation(Simulation):
         if coverage_ratio > self.best_coverage[1]:
             self.best_coverage = covered_count, coverage_ratio
 
-        if np.any(self.observation["sensor"][:5] < 0.1):
-            self.collisions += 1
         # if(self.total_steps % 500 == 0) :
         #     print("Step: " + str(self.total_steps))
         #     print(f"Actions: {self.actions[0], self.actions[1]}")
@@ -511,6 +509,8 @@ class WebotsSimulation(Simulation):
     def checkCollisions(self):
         minDist = 0.01
         for i in range(len(self.prox_checks)):
+            if np.any(self.observation["sensor"][:5] < 0.1):
+                return True
             if math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
                 continue    
             if(abs(self.prox_checks[i].signed_distance(np.array([self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]]))) < .335/2 + minDist):
@@ -531,6 +531,7 @@ class WebotsSimulation(Simulation):
         if (self.checkCollisions()): # if any distance sensor is low penalize
             reward += -1
             self.collision_safeguard += 1
+            self.collisions += 1
         else:
             self.collision_safeguard = 0
         if self.collision_safeguard >= 40:
