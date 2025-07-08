@@ -32,6 +32,8 @@ from scenic.simulators.webots.utils import ENU, WebotsCoordinateSystem
 from controller import DistanceSensor
 
 
+
+
 class WebotsSimulator(Simulator):
     """`Simulator` object for Webots.
 
@@ -69,6 +71,22 @@ class WebotsSimulation(Simulation):
             exposed for the use of scenarios which need to call Webots APIs
             directly; e.g. :scenic:`simulation().supervisor.setLabel({...})`.
     """
+    
+    def calculate_result(objects):
+        total_area = 0
+        for length, width in objects:
+            total_area += length * width
+        result = 25 - total_area
+        return result
+
+    # Example: list of (length, width) tuples
+    objects = [
+        (0.75, 2),    #couch
+    ]
+
+    result = calculate_result(objects)
+    total_tiles = (result * 2601)/25
+    print(f"Result after subtracting total area from 25: {total_tiles}")
 
     def __init__(self, scene, supervisor, coordinateSystem=ENU, *, timestep, **kwargs):
         self.supervisor = supervisor
@@ -83,8 +101,8 @@ class WebotsSimulation(Simulation):
 
         self.supervisor_node = self.supervisor.getSelf()
 
-        self.left_motor = self.supervisor.getDevice("right wheel motor")
-        self.right_motor = self.supervisor.getDevice("left wheel motor")
+        self.left_motor = self.supervisor.getDevice("left wheel motor")
+        self.right_motor = self.supervisor.getDevice("right wheel motor")
 
         self.sensor_right = self.supervisor.getDevice("cliff_right")
         self.sensor_front_right = self.supervisor.getDevice("cliff_front_right")
@@ -109,14 +127,21 @@ class WebotsSimulation(Simulation):
 
         self.enable_sensors = False
         self.actions = 0
-        self.observation = np.zeros(10) # TODO Need to fix obs and initialziation
         self.ms = round(1000 * self.timestep)
+        self.sectional_coverage = np.zeros(16)
+        self.observation = {
+            "sensor": np.zeros(7),
+            "position": np.zeros(2), 
+            "sectional_coverage":np.zeros(16),
+            "current_section": 0,
+            "orientation": np.zeros(4, dtype=np.float32) 
+
+        } # TODO Need to fix obs and initialziation
 
         self.room_width = 5.09    # meters — change as needed
         self.room_length = 5.09   # meters — change as needed
         self.granularity = 0.1    # meters (matches rounding precision)
-
-        self.total_spaces = (2 * np.floor(self.room_width / (2*self.granularity)) + 1)**2 
+        self.total_spaces = WebotsSimulation.total_tiles 
         self.best_coverage = 0,0
         self.collisions = 0
         self.total_steps = 0
@@ -125,6 +150,7 @@ class WebotsSimulation(Simulation):
  
 
         super().__init__(scene, timestep=timestep, **kwargs)
+    
 
     def setup(self):
         super().setup()
@@ -290,18 +316,21 @@ class WebotsSimulation(Simulation):
             self.init_step()
 
         self.total_steps += 1
+        
+        rot = np.array(self.supervisor_node.getField("rotation").getSFVec2f(), dtype=np.float32)
+        #print("Orientation:", rot) #to print
+        pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
+        self.observation = {
+            "sensor": np.array([self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, # ensures that null values are not returned from unintialized sensors
+                self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
+                                     self.sensor_actual_right.getValue()/800]),       
+            "position": np.array(pos),
+            "sectional_coverage": self.sectional_coverage / (self.total_spaces / 16),
+            "current_section": self.posToIdx(pos),
+            "orientation": np.array([rot[0], rot[1], rot[2], rot[3]]),
 
-        self.observation = np.array([
-            self.sensor_left.getValue() / 800,
-            self.sensor_right.getValue() / 800,
-            self.sensor_front_right.getValue() / 800,
-            self.sensor_front_left.getValue() / 800,
-            self.sensor_back.getValue() / 800,
-            self.sensor_actual_left.getValue() / 800,
-            self.sensor_actual_right.getValue() / 800,
-            self.pos[0], self.pos[1],
-            len(self.covered_spaces) / self.total_spaces
-        ])
+        }
+
 
         self.supervisor.step(self.ms) #imp
 
@@ -435,36 +464,69 @@ class WebotsSimulation(Simulation):
         return covered_count, coverage_ratio  
 
 
+    def posToIdx(self, pos):
+            idx = np.array([0, 0])
+            for i in range(0, 2):
+                if(pos[i] <= self.room_width / 4 * -1):
+                    idx[i] = 0
+                elif(pos[i] <= 0):
+                    idx[i] = 1
+                elif(pos[i] <= self.room_width / 4):
+                    idx[i] = 2
+                else:
+                    idx[i] = 3
+            return 4 * idx[0] + idx[1]
+            
+
+    def get_coverage_reward(self, granularity, pos):
+            reward = 0
+            #important parameter
+            radius = .335/2
+            x_range = np.arange(pos[0] - radius - granularity, pos[0] + radius + granularity, granularity)
+            y_range = np.arange(pos[1] - radius - granularity, pos[1] + radius + granularity, granularity)
+            x_range_combined, y_range_combined = np.meshgrid(x_range, y_range, indexing="xy")
+            mask = (x_range_combined - pos[0])**2 + (y_range_combined - pos[1])**2 <= radius**2
+            circle_points = [
+                (
+                    round(granularity * round(x / granularity), 3),
+                    round(granularity * round(y / granularity), 3)
+                )
+                for x, y in np.vstack((x_range_combined[mask],
+                                    y_range_combined[mask])).T
+            ]
+            for point in circle_points:
+                if(point not in self.covered_spaces):
+                    reward += 1
+                    self.covered_spaces.append(point)
+                    self.sectional_coverage[self.posToIdx(pos)] += 1
+            if reward == 0:
+                reward += -.001
+            return reward
+        
+
     def get_reward(self): # "any dummy for now will be okay"
         """
         Calculate the reward based off of the current state
         """
-        pos_exact = np.array(self.supervisor_node.getPosition()[:2])        
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
-        self.pos = pos
-        reward = 0
-        reward += self.get_coverage_reward([pos[0], pos[1]])
-
-        pos = np.array(self.supervisor_node.getPosition()[:2])
-        pos = np.round(pos, decimals=2)
-        #print(1/(np.linalg.norm(pos_exact)+1)) #this is to see distance from center
-        reward += (1/(np.linalg.norm(pos_exact)+1))
-        if self.invalid_action:
-            reward = -100
-            self.invalid_action = False
-
-        if (np.any(self.observation[:7] < 0.15) ): # if any distance sensor is low penalize
-            vm = -1
-            reward += -abs(vm)/self.velocity_ranges[1]
-            self.collisions += 1 
-            self.collision_safegaurd += 1 
-        elif(np.any(self.observation[5:7] < .075)): # allow the side sensors to be closer that the front sensors
-            self.collisions += 1
+        pos = tuple(pos.tolist())
+        reward = self.get_coverage_reward(self.granularity, [pos[0], pos[1]])
+    
+        
+        if (np.any(self.observation["sensor"][:5] < 0.1) ): # if any distance sensor is low penalize
+            reward += -1
             self.collision_safegaurd += 1
-            reward += -abs(np.mean(self.actions))
-
-        if self.collision_safegaurd > 15:
+        else:
+            self.collision_safegaurd = 0
+        if self.collision_safegaurd >= 90:
             reward += -100
+        
+        if self.invalid_action:
+            reward += -100
+            print("Invalid action")
+            self.invalid_action = False
+        self.total_reward += reward
+        return reward
 
         #print(f" sensor data {self.observation[2:9]}")
 
@@ -484,19 +546,19 @@ class WebotsSimulation(Simulation):
         """
         return self.observation
     
-    def transform_vel(self): 
-        """
-        Maps the actors actions from (-1,1) to the actual motor range
-        of the robot system
-        """
-        self.actions[0] = self.actions[0] * self.velocity_ranges[1] 
-        self.actions[1] = self.actions[1] * self.velocity_ranges[1]
-        if np.any(np.abs(self.actions) > 16.139):
-            print("Error with velocity comp:")
-            self.invalid_action = True
-            print(f"Actions: {self.actions[0], self.actions[1]}")
-            self.actions[0] = 0
-            self.actions[1] = 0 # set invalid action to 0 instead
+    # def transform_vel(self): 
+    #     """
+    #     Maps the actors actions from (-1,1) to the actual motor range
+    #     of the robot system
+    #     """
+    #     self.actions[0] = self.actions[0] * self.velocity_ranges[1] 
+    #     self.actions[1] = self.actions[1] * self.velocity_ranges[1]
+    #     if np.any(np.abs(self.actions) > 16.139):
+    #         print("Error with velocity comp:")
+    #         self.invalid_action = True
+    #         print(f"Actions: {self.actions[0], self.actions[1]}")
+    #         self.actions[0] = 0
+    #         self.actions[1] = 0 # set invalid action to 0 instead
 
 
     def get_truncation(self):
@@ -504,8 +566,6 @@ class WebotsSimulation(Simulation):
             return True
         else:
             return False
-
-            
 
 def getFieldSafe(webotsObject, fieldName):
     """Get field from webots object. Return null if no such field exists.
