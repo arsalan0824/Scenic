@@ -17,9 +17,9 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.evaluation import evaluate_policy
 
 import matplotlib.pyplot as plt
+import time
 
-
-
+start = time.time()
  
 supervisor = Supervisor() # Collect the Supervisor node from the simulation
 simulator = WebotsSimulator(supervisor) # Create an instance of the WebotsSImulator with the corresponding node
