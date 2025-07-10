@@ -49,7 +49,7 @@ def otf(message):
         print(message, file=f)
 
 episodes = 0
-
+saved_stepcount = 0
 class WebotsSimulator(Simulator):
     """`Simulator` object for Webots.
 
@@ -293,7 +293,15 @@ class WebotsSimulation(Simulation):
             elif obj.resetController:
                 webotsObj.restartController()
         if hasattr(obj, 'width') and hasattr(obj, 'length'):
-            self.obj_dims.append((float(obj.width), float(obj.length)))
+            name = (obj.webotsName or obj.webotsType or "")
+            if "SCENIC_ADHOC7" in name:
+                for i in range(4):
+                    self.obj_dims.append((0.1, 0.1))
+                print("Counted 4 table legs only")
+            else:
+                self.obj_dims.append((float(obj.width), float(obj.length)))
+                print(f"Subtracted full area for: {name}")
+            
             
     def compute_total_tiles(self):
         room_area = self.room_width * self.room_length
@@ -320,6 +328,8 @@ class WebotsSimulation(Simulation):
                 self.init_step()
 
         self.total_steps += 1
+        global saved_stepcount
+        saved_stepcount += 1
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
         self.observation = {
@@ -339,11 +349,6 @@ class WebotsSimulation(Simulation):
         covered_count, coverage_ratio = self.get_coverage_metric()
         if coverage_ratio > self.best_coverage[1]:
             self.best_coverage = covered_count, coverage_ratio
-
-        # if(self.total_steps % 500 == 0) :
-        #     print("Step: " + str(self.total_steps))
-        #     print(f"Actions: {self.actions[0], self.actions[1]}")
-        #     print(f"Observations: {self.observation}")
         
     def getObjects(self):
         for obj in self.objects:
@@ -505,14 +510,28 @@ class WebotsSimulation(Simulation):
             if reward == 0:
                 reward += -.001
             return reward
-    
+    # def checkCollisions(self):
+    #     minDist = 0.01 # minimum distance to be considered a collision
+    #     if np.any(self.observation["sensor"][:5] < 0.1):
+    #         return True
+    #     for i in range(1, len(self.objects)):
+    #         obj = self.objects[i]
+    #         if i < math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
+    #             continue  
+    #         if hasattr(obj, "floor"): # add a attribute for objs excluded in comp
+    #             pass   
+    #         elif (hasattr(obj, "occupiedSpace")): # safety check ensures that we dont try to access something nonexistent
+    #             if( obj.occupiedSpace.intersects(self.objects[0].occupiedSpace)):
+    #                 print("collided with object: " + str(obj))
+    #                 return True
+    #     return False
     def checkCollisions(self):
-        minDist = 0.01
-        for i in range(len(self.prox_checks)):
-            if np.any(self.observation["sensor"][:5] < 0.1):
+        minDist = 0.001
+        if np.any(self.observation["sensor"][:5] < 0.01):
                 return True
+        for i in range(len(self.prox_checks)):
             if math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
-                continue    
+                continue  
             if(abs(self.prox_checks[i].signed_distance(np.array([self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]]))) < .335/2 + minDist):
                 return True
         return False

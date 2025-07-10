@@ -34,6 +34,7 @@ class Floor(Object):
     height: 0.01
     position: (0,0,-0.005)
     color: [0.785, 0.785, 0.785]
+    floor: 2
 
 class Wall(WebotsObject):
     webotsAdhoc: {'physics': False}

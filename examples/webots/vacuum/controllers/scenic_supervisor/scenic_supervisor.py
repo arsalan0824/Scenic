@@ -50,18 +50,18 @@ env = ScenicGymEnv(scenario,
                    observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
 env = Monitor(env)
 
-episodes= 20
+episodes= 150
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
 model = PPO("MultiInputPolicy", env, verbose=2, learning_rate=0.0002,ent_coef=0.05)
 # Create an instance of an agent 
 model.set_parameters("PPO_vacuum_agent") # Load the parameters of a previously trained agent
-#model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
-#model.save("PPO_vacuum_agent")               # Save the model after training
+model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
+model.save("PPO_vacuum_agent")               # Save the model after training
 
-mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=5,render=False, deterministic=False)
-print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
+# mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=5,render=False, deterministic=False)
+# print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 episodic_rewards = env.get_episode_rewards()
 print(episodic_rewards)
@@ -78,7 +78,7 @@ file_name = "PPO_policy" + str(total_timesteps)  + ".png"
 plt.savefig(file_name,format='png')
 plt.show()
 
-mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=3,render=False)
+mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=5,render=False)
 
 print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
