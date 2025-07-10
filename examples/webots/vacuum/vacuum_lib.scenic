@@ -9,9 +9,6 @@ import numpy as np
 import trimesh
 import random
 
-param numToys = 0
-param duration = 10
-
 
 class Vacuum(WebotsObject):
     webotsName: "IROBOT_CREATE"
@@ -34,6 +31,7 @@ class Floor(Object):
     height: 0.01
     position: (0,0,-0.005)
     color: [0.785, 0.785, 0.785]
+    floor: True # for collision checks
 
 class Wall(WebotsObject):
     webotsAdhoc: {'physics': False}
@@ -41,14 +39,6 @@ class Wall(WebotsObject):
     length: 0.04
     height: 0.5
     color: [0.627, 0.627, 0.627]
-
-
-class floor_test(WebotsObject):
-    webotsAdhoc: {'physics':False}
-    shape: MeshShape.fromFile(localPath("../../../assets/meshes/FLOOR.obj.bz2"),initial_rotation=(0,0,0))
-    width: 1
-    length: 1
-    
 
 class DiningTable(WebotsObject):
     webotsAdhoc: {'physics': True}
