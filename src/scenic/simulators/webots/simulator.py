@@ -100,24 +100,29 @@ class WebotsSimulation(Simulation):
 
         self.enable_sensors = False
         self.actions = [0,0]
-        self.observation = np.zeros(15) # TODO Need to fix obs and initialziation
         self.ms = round(1000 * self.timestep)
 
-        self.room_width = 5.09    # meters — change as needed
-        self.room_length = 5.09   # meters — change as needed
+        self.room_width = 5.0    # meters — change as needed (remove the excess which accounts for where the walls fit)
+        self.room_length = 5.0   # meters — change as needed
         self.granularity = 0.2    # meters (matches rounding precision)
 
 
         self.best_coverage = 0,0
         self.collisions = 0
         self.total_steps = 0
+        self.total_spaces = 0 
 
         self.threshold = .5
         self.increment = .05
-        self.total_spaces = (2 * np.floor(self.room_width / (2*self.granularity)) + 1)**2 
 
         self.previous_actions = np.zeros(2)
         self.collision_safegaurd = 0
+
+        self.observation = { "velocity": [0,0],
+                             "sensor" : [0,0,0,0,0,0,0],
+                             "rotation": [0,0,0,0],
+                             "position": [0,0]
+        } #init obs
  
 
         super().__init__(scene, timestep=timestep, **kwargs)
@@ -129,6 +134,7 @@ class WebotsSimulation(Simulation):
 
 
     def createObjectInSimulator(self, obj):
+
         if not hasattr(obj, "webotsName"):
             return  # not a Webots object
 
@@ -261,14 +267,15 @@ class WebotsSimulation(Simulation):
 
         self.previous_actions = [self.left_motor.getVelocity(), self.right_motor.getVelocity()]
 
-        self.observation = np.array([self.actions[0], self.actions[1], # velocity
-                                     self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, 
-                                     self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, 
-                                     self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
-                                     self.sensor_actual_right.getValue()/800, 
-                                     rot[0], rot[1], rot[2], rot[3],
-                                     self.pos[0]/5, self.pos[1]/5  # normalize position
-                                        ])       
+        self.observation = {"velocity" : np.array(self.actions), # velocity
+                             "sensor"  : np.array([self.sensor_left.getValue()/800,self.sensor_right.getValue()/800, 
+                                                  self.sensor_front_right.getValue()/800, 
+                                                  self.sensor_front_left.getValue()/800, 
+                                                  self.sensor_back.getValue()/800, 
+                                                  self.sensor_actual_left.getValue()/800,  
+                                                  self.sensor_actual_right.getValue()/800]), 
+                           "rotation"   : np.array([rot[0], rot[1], rot[2], rot[3]]),
+                           "position"   : np.array([self.pos[0]/2.6, self.pos[1]/2.6])}     
     
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
@@ -308,6 +315,7 @@ class WebotsSimulation(Simulation):
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
         self.pos = pos # initialize the position
         self.enable_sensors = True
+        self.compute_total_tiles()
 
 
     def getProperties(self, obj, properties):
@@ -350,11 +358,13 @@ class WebotsSimulation(Simulation):
 
     def destroy(self):
         # Destroy adhoc objects generated at the beginning of the simulation
-        print(f" total episode reward was {self.total_reward}")
+    
+        #print(f" total episode reward was {self.total_reward}")
 
-        print(f"This is the metric: {self.metric()}")
-        print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%) \n")
-
+        #print(f"This is the metric: {self.metric()}")
+        #print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%) \n")
+    
+      
         for i in range(1, self.nextAdHocObjectId):
             name = self._getAdhocObjectName(i)
             node = self.supervisor.getFromDef(name)
@@ -383,12 +393,11 @@ class WebotsSimulation(Simulation):
         ]
         for point in circle_points:
             if(point not in self.covered_spaces):
-                reward += 1
+                reward += 2
                 self.covered_spaces.append(point)
         return reward
     
     def metric(self):
-
         avg_reward = self.total_reward / self.total_steps if self.total_steps > 0 else 0
         exploration = len(self.covered_spaces)
         collision_rate = self.collisions / self.total_steps if self.total_steps > 0 else 0
@@ -408,37 +417,46 @@ class WebotsSimulation(Simulation):
         # Number of unique positions visited
         covered_count = len(self.covered_spaces)
         # Coverage ratio (fraction of total spaces covered)
+
         coverage_ratio = covered_count / self.total_spaces
         # Optionally: return both count and percentage
-        return covered_count, coverage_ratio  
+        return covered_count, coverage_ratio 
+    
+    def check_collisions(self):
+        for obj in self.objects[1:]:
+            if hasattr(obj, "floor"): # add a attribute for objs excluded in comp
+                pass
+            elif (hasattr(obj, "occupiedSpace")): # safety check ensures that we dont try to access something nonexistent
+                if( obj.occupiedSpace.intersects(self.objects[0].occupiedSpace)):
+                    return True
+                
+    
+    def compute_total_tiles(self):
+        room_area = self.room_width * self.room_length
+        object_area = 0
+        for obj in self.objects[1:]:
+            if hasattr(obj, "floor"): # add a attribute for objs excluded in comp
+                pass
+            else: 
+                object_area += obj.width * obj.length
+        
+        cleanable_area = room_area - object_area
+
+        tile_area = self.granularity ** 2
+        total_tiles = int(cleanable_area / tile_area)
+        self.total_spaces = total_tiles
+        print(f"Computed total cleanable tiles: {total_tiles}")
 
 
     def get_reward(self): 
         """
         Calculate the reward based off of new points covered in the space
-        """
-    
-        distances = np.array([self.records["left_wall_distance"][self.total_steps - 1][1],
-                     self.records["back_wall_distance"][self.total_steps - 1][1],
-                     self.records["front_wall_distance"][self.total_steps - 1][1],
-                     self.records["right_wall_distance"][self.total_steps - 1][1] 
-                     ])# might want to make this more general for n objects in sim
-             
-
+        """       
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
-        self.pos = pos
-
-        # DJF stuff
-        """
-        vacuum = self.objects[0]
-        table = self.objects[...]
-        vacuum.distanceTo(table)
-        """
-        # end DJF stuff
-
         reward = 0
+        
+        self.pos = pos # not sure why this is needed
         reward += self.get_coverage_reward([pos[0], pos[1]])
-
         if self.invalid_action:
             reward = -100
             self.invalid_action = False
@@ -446,36 +464,35 @@ class WebotsSimulation(Simulation):
         """
         Small incentives for smoother drivng behaviors
         """
-
         if (np.abs(self.actions[0] - self.actions[1]) < 1):
             reward += .01 # small reward for driving forward or uniformly on both motors
 
         if (np.sum([self.actions[0] - self.previous_actions[0], self.actions[1] - self.previous_actions[1]]) < 2):
             reward += .01 # small reward for driving smoothly
 
-        if np.all(self.observation[:2] > 0):
+        if np.all(self.observation["velocity"] > 0):
             reward += .01 # small reward for driving forward
-
-        
-
-        print(self.observation[2:9])
-        if (np.any(self.observation[2:9])): #check distance from all objects - Robot is .33 m so radisu is 
-            self.collisions += 1 # total collisions per episode
-            self.collision_safegaurd += 1  # total sequential collisions
+        """
+        Penalization for collisions and bonus rewards for room coverage
+        """
+        if self.check_collisions(): #check distance from all objects - Robot is .33 m so radisu is 
+            self.collisions += 1                 # total collisions per episode
+            self.collision_safegaurd += 1        # total sequential collisions
             reward += -np.mean(np.abs(self.actions))
         else:
-            self.collision_safegaurd = 0 # reset after no contact for a timestep
+            self.collision_safegaurd = 0         # reset after no contact for a timestep
 
         if len(self.covered_spaces)/ self.total_spaces > self.threshold:
             reward += 100 + self.threshold * (100) # slowly scale the reward signal up with more coverage
             self.threshold += self.increment
 
         if self.collision_safegaurd > 15:
-            reward += -10
+            reward += -5
 
         self.total_reward += reward
         
         return reward
+
     
     def get_info(self):
         """
@@ -505,10 +522,10 @@ class WebotsSimulation(Simulation):
 
 
     def get_truncation(self): # monitor for early truncatioon
-        if self.collision_safegaurd > 20:
-            return True
-        else:
             return False
+        
+    def sampler_feedback(self): # modify as needed
+        return self.total_reward
 
             
 
