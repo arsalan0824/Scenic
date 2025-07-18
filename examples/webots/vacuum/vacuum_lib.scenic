@@ -11,6 +11,7 @@ import random
 
 param numToys = 0
 param duration = 10
+param clip_range = 0
 
 
 class Vacuum(WebotsObject):
@@ -24,6 +25,7 @@ class Vacuum(WebotsObject):
     controller: "scenic_supervisor"
     resetController: False
     reward : 0
+    clip_range: 0 
     
 
 # Floor uses builtin Webots floor to keep Vacuum Sensors from breaking
