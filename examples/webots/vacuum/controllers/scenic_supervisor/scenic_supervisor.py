@@ -19,8 +19,35 @@ from stable_baselines3.common.evaluation import evaluate_policy
 import matplotlib.pyplot as plt
 import time
 
+# class GAECallback(BaseCallback):
+#     def _on_step(self) -> bool:
+#         # SB3 makes a `dones` array available here
+#         dones = self.locals.get("dones")
+#         # whenever any env signals done=True, an episode just ended
+#         if dones is not None and np.any(dones):
+#             # 1) grab the last rollout's per-step GAE
+#             advantages = self.model.rollout_buffer.advantages  # shape (n_steps * n_envs,)
+#             # 2) turn it into one scalar (sum of absolutes is common)
+#             priority = np.average(np.abs(advantages))
+
+#             # 3) find your ScenicGymEnv inside the VecEnv/Monitor wrappers
+#             envs = getattr(self.training_env, "envs", [self.training_env])
+#             for e in envs:
+#                 real = getattr(e, "env", e)    # unwrap Monitor if present
+#                 if isinstance(real, ScenicGymEnv):
+#                     idx = real.working_index
+#                     # overwrite the PLR buffer entry for this scene
+#                     if idx < len(real.buffer_learning_potential):
+#                         real.buffer_learning_potential[idx] = priority
+#                     else:
+#                         real.buffer_learning_potential = np.append(
+#                             real.buffer_learning_potential, priority
+#                         )
+#         return True 
+# gae_cb = GAECallback()
+
 start = time.time()
- 
+
 supervisor = Supervisor() # Collect the Supervisor node from the simulation
 simulator = WebotsSimulator(supervisor) # Create an instance of the WebotsSImulator with the corresponding node
 
@@ -41,34 +68,37 @@ observation_space = gym.spaces.Dict({
     #"sectional_coverage": gym.spaces.Box(low=np.zeros(16), high=np.ones(16), shape=(16,),dtype=np.float64),
     # "current_section": gym.spaces.Box(low=np.array([0]), high=np.array([15]), shape=(1,),dtype=int)
 })
-max_steps = 10000
+max_steps = 100
 env = ScenicGymEnv(scenario, 
                    simulator, 
                    render_mode=None, 
-                   max_steps=max_steps, 
+                   max_steps=max_steps,  
                    action_space=action_space,
                    observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
 env = Monitor(env)
 
-episodes= 150
+episodes= 21
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
 model = PPO("MultiInputPolicy", env, verbose=2, learning_rate=0.0002,ent_coef=0.05)
 # Create an instance of an agent 
-model.set_parameters("PPO_vacuum_agent") # Load the parameters of a previously trained agent
+model.set_parameters("baseline.zip") # Load the parameters of a previously trained agent
 model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
-model.save("PPO_vacuum_agent")               # Save the model after training
+#model.save("7_21 - 50 + 50 VerifAI")               # Save the model after training
 
-# mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=5,render=False, deterministic=False)
-# print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
+#mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False, deterministic=False)
+#print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
+
+env.env.logScores()
 
 episodic_rewards = env.get_episode_rewards()
 print(episodic_rewards)
 total_pc = 0
-for i in range(1, len(episodic_rewards)):
-    total_pc += (episodic_rewards[i] - episodic_rewards[i - 1]) / np.abs(episodic_rewards[i - 1])
-print("Average normalized percent difference: " + str(total_pc / (len(episodic_rewards) - 1)))
+if(len(episodic_rewards) >= 2):
+    for i in range(1, len(episodic_rewards)):
+        total_pc += (episodic_rewards[i] - episodic_rewards[i - 1]) / np.abs(episodic_rewards[i - 1])
+    print("Average normalized percent difference: " + str(total_pc / (len(episodic_rewards) - 1)))
 
 fig,ax = plt.subplots()
 
@@ -77,10 +107,6 @@ ax.stem(range(len(episodic_rewards)), episodic_rewards)
 file_name = "PPO_policy" + str(total_timesteps)  + ".png"
 plt.savefig(file_name,format='png')
 plt.show()
-
-mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=5,render=False)
-
-print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 
 end = time.time()

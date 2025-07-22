@@ -103,6 +103,7 @@ class WebotsSimulation(Simulation):
         #collisions & collision detection
         self.collisions = 0
         self.collision_safeguard = 0
+        self.inter_penalty = False
         self.prox_checks = []
         self.spheres = []
         
@@ -297,10 +298,10 @@ class WebotsSimulation(Simulation):
             if "SCENIC_ADHOC7" in name:
                 for i in range(4):
                     self.obj_dims.append((0.1, 0.1))
-                print("Counted 4 table legs only")
+                #print("Counted 4 table legs only")
             else:
                 self.obj_dims.append((float(obj.width), float(obj.length)))
-                print(f"Subtracted full area for: {name}")
+                #print(f"Subtracted full area for: {name}")
             
             
     def compute_total_tiles(self):
@@ -311,7 +312,7 @@ class WebotsSimulation(Simulation):
         tile_area = self.granularity ** 2
         total_tiles = int(cleanable_area / tile_area)
         self.total_spaces = total_tiles
-        print(f"Computed total cleanable tiles: {total_tiles}")
+        #print(f"Computed total cleanable tiles: {total_tiles}")
                 
     def get_coverage_metric(self):
         # Number of unique positions visited
@@ -330,6 +331,8 @@ class WebotsSimulation(Simulation):
         self.total_steps += 1
         global saved_stepcount
         saved_stepcount += 1
+        if(saved_stepcount % 100 == 0):
+            print(f"Saved step count: {saved_stepcount}")
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
         self.observation = {
@@ -527,7 +530,7 @@ class WebotsSimulation(Simulation):
     #     return False
     def checkCollisions(self):
         minDist = 0.001
-        if np.any(self.observation["sensor"][:5] < 0.01):
+        if np.any(self.observation["sensor"][:5] < minDist):
                 return True
         for i in range(len(self.prox_checks)):
             if math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
@@ -544,8 +547,8 @@ class WebotsSimulation(Simulation):
         pos = tuple(pos.tolist())
         reward = self.get_coverage_reward(self.granularity, [pos[0], pos[1]])
         
-        if np.all(self.observation["velocity"] > 0):
-            reward += .2 # small reward for driving forwa
+        # if np.all(self.observation["velocity"] > 0):
+        #     reward += .2 # small reward for driving forwa
         
         if (self.checkCollisions()): # if any distance sensor is low penalize
             reward += -1
@@ -553,8 +556,9 @@ class WebotsSimulation(Simulation):
             self.collisions += 1
         else:
             self.collision_safeguard = 0
-        if self.collision_safeguard >= 40:
+        if self.collision_safeguard >= 40 and not self.inter_penalty:
             reward += -100
+            self.inter_penalty = True
         
         if self.invalid_action:
             reward += -100
@@ -562,6 +566,7 @@ class WebotsSimulation(Simulation):
             self.invalid_action = False
         self.total_reward += reward
         return reward
+
     def get_info(self):
         """
         Any information about the system/state that should be retained
