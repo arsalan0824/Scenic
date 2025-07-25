@@ -1,4 +1,5 @@
-"""Interface to Webots for dynamic simulations.
+"""ethan + arsalan simulator.py
+Interface to Webots for dynamic simulations.
 
 This interface is intended to be instantiated from inside the controller script
 of a Webots `Robot node`_ with the ``supervisor`` field set to true. Such a
@@ -36,8 +37,6 @@ from trimesh.creation import box
 import math, numpy as np
 from trimesh.proximity import closest_point
 from trimesh.proximity import ProximityQuery
-from collections import deque
-
 file_path = "../../../../../../output.txt"
 
 def ptf(message):
@@ -51,7 +50,7 @@ def otf(message):
         print(message, file=f)
 
 episodes = 0
-
+saved_stepcount = 0
 class WebotsSimulator(Simulator):
     """`Simulator` object for Webots.
 
@@ -61,7 +60,6 @@ class WebotsSimulator(Simulator):
     episode_count = 0
     current_simulation = None
     last_avg_return = None
-    last_10_episode_rewards = deque(maxlen=10)
     
     def __init__(self, supervisor):
         super().__init__()
@@ -86,11 +84,10 @@ class WebotsSimulator(Simulator):
                 self.supervisor,
                 coordinateSystem=self.coordinateSystem,
                 parent_simulator=self,
-                lidar_max_range=lidar_max_range, #Pass it to WebotsSimulation
+                # lidar_max_range=lidar_max_range, #Pass it to WebotsSimulation
                 **kwargs
             )
             return self.current_simulation
-
 
 
 class WebotsSimulation(Simulation):
@@ -101,18 +98,18 @@ class WebotsSimulation(Simulation):
             exposed for the use of scenarios which need to call Webots APIs
             directly; e.g. :scenic:`simulation().supervisor.setLabel({...})`.
     """
-    def __init__(self, scene, supervisor, coordinateSystem=ENU, *, timestep, parent_simulator=None, lidar_max_range=None, **kwargs): # 👈 Accept lidar_max_range
-        #room data 
+    def __init__(self, scene, supervisor, coordinateSystem=ENU, *, timestep, parent_simulator=None, lidar_max_range=None, **kwargs): # Accept lidar_max_range
+        #room data
         self.room_width = 5.    
         self.room_length = 5.   
         self.granularity = 0.05    
         self.total_spaces = (2 * np.floor(self.room_width / (2*self.granularity)) + 1)**2 - 4 #-4 for each of the corners
         self.obj_dims = []
         
-        
         #collisions & collision detection
         self.collisions = 0
         self.collision_safeguard = 0
+        self.inter_penalty = False
         self.prox_checks = []
         self.spheres = []
         
@@ -121,7 +118,6 @@ class WebotsSimulation(Simulation):
         self.covered_spaces = []
         self.invalid_action = False
         self.total_reward = 0
-        self.lidar_max_range = lidar_max_range if lidar_max_range is not None else 2.6
         
         #simulation data
         self.time_elapsed = 0
@@ -166,27 +162,19 @@ class WebotsSimulation(Simulation):
         self.ms = round(1000 * self.timestep)
 
         #observation space
-        
-        lidar: np.full (16, 0) # 16 lidar sensors
-        #self.lidar_max_range = 1- self.best_coverage[1]   
         self.sectional_coverage = np.zeros(16)
-        # self.objects = scene.objects
-        # self.objects[0].clip_range
-        # self.Li_max_Range = self.objects[0].clip_range 
-        # clip_range = self.objects[0].clip_range
-        # lidar_clipped = np.clip(raw_lidar, 0, self.Li_max_Range)
 
         self.observation = {
             "velocity": np.zeros(2), 
-            # "sensor": np.zeros(7),
+            #"sensor": np.zeros(7),
+            "lidar": np.full(36, 0.01), #there are 36 lidar sensors
             "position": np.zeros(2),
-            "lidar": np.full(16, 0.2) # 16 lidar sensors 
+            "rotation": [0,0,0,0]
             # "sectional_coverage":np.zeros(16),
             # "current_section": 0
-        } # TODO Need to fix obs and initialziation    
-        #print (f"Lidar Max Range (in simulation): {self.lidar_max_range}") # Verify it's set correctly
-        super().__init__(scene, timestep=timestep, **kwargs)
+        } # TODO Need to fix obs and initialziation        
         
+        super().__init__(scene, timestep=timestep, **kwargs)
 
     def setup(self):
         super().setup()
@@ -317,13 +305,14 @@ class WebotsSimulation(Simulation):
                 webotsObj.restartController()
         if hasattr(obj, 'width') and hasattr(obj, 'length'):
             name = (obj.webotsName or obj.webotsType or "")
-            if "SCENIC_ADHOC_7" in name:
-                for _ in range(4):
+            if "SCENIC_ADHOC7" in name:
+                for i in range(4):
                     self.obj_dims.append((0.1, 0.1))
-                print("Counted 4 table legs only")
+                #print("Counted 4 table legs only")
             else:
                 self.obj_dims.append((float(obj.width), float(obj.length)))
-                print(f"Subtracted full area for: {name}")
+                #print(f"Subtracted full area for: {name}")
+            
             
     def compute_total_tiles(self):
         room_area = self.room_width * self.room_length
@@ -333,7 +322,7 @@ class WebotsSimulation(Simulation):
         tile_area = self.granularity ** 2
         total_tiles = int(cleanable_area / tile_area)
         self.total_spaces = total_tiles
-        print(f"Computed total cleanable tiles: {total_tiles}")
+        #print(f"Computed total cleanable tiles: {total_tiles}")
                 
     def get_coverage_metric(self):
         # Number of unique positions visited
@@ -342,43 +331,63 @@ class WebotsSimulation(Simulation):
         coverage_ratio = covered_count / self.total_spaces
         # Optionally: return both count and percentage
         return covered_count, coverage_ratio          
-        
+
+
     def step(self): # action should be some low level control commands for the robot
         if not self.enable_sensors: 
                # print("Protections failed sensors were not initialized before calling") 
                # TODO more elegant fix here, sensor need to be adaquetly initialized before the simlation begins stepping
                 self.init_step()
 
+        rot = np.array(self.supervisor_node.getField("rotation").getSFVec2f(), dtype=np.float32)
+
         self.total_steps += 1
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
+        #if episode is under 10 input_val=2.6, else input_val=100- self.current_total_coverage_sum
+        #self.current_total_coverage_sum max assuming 100% acorss 10 episodes is 10
+        input_val = -0.26 * self.current_total_coverage_sum + 5.2
+        if episodes < 9:
+            input_val = 5.2
+        else:
+            input_val = -0.26 * self.current_total_coverage_sum + 5.2
+
         raw_lidar = np.array(self.LIDAR.getRangeImage(), dtype=np.float64)
-        raw_lidar = np.nan_to_num(raw_lidar, nan=2.6, posinf=2.6, neginf=0.2)
-        raw_lidar = np.clip(raw_lidar, 0.2, 2.6)  # ensure it stays in observation space bounds
-        raw_lidar = (raw_lidar - 0.2) / (2.6 - 0.2) # change 2.6 to max range
+        raw_lidar = np.nan_to_num(raw_lidar, nan=input_val, posinf=input_val, neginf=0.01)
+        #max value is input_val, min value is 0.01
+        raw_lidar = np.clip(raw_lidar, 0.01, input_val)
+
+        #-----------------------------------------------------------------------
+        # # #print episode
+        # print(f"Episode number: {episodes}")
+        # #print lidar values, not normalized
+        #print(f"LIDAR values: {raw_lidar}") #print lidar values for debugging
+        # #print sum of covered spaces last 10 episodes
+        # print (f"sum of last 10 episodes {self.current_total_coverage_sum}")
+        # print (f"input_val (max on lidar) {input_val:.5f}")
+        # #print coverage percentage
+        # print(f"Coverage percentage: {self.best_coverage[1] * 100:.2f}%")
+
+        #------------------------------------------------------------------
+        
+        #print(f"Sum of covered spaces last 10 episodes: {np.sum(self.last_10_episode_coverages)}") #print sum of covered spaces last 10 episodes
+        #print(f"input_val used for nan and posinf: {input_val}")
+        #raw_lidar = np.clip(raw_lidar, 0.2, self.objects[0].clip_range)  # ensure it stays in observation space bounds
+        # raw_lidar = (raw_lidar - 0.2) / (self.objects[0].clip_range - 0.2) # change 2.6 to max range
+        #print(f"LIDAR (min/avg/max): {np.min(raw_lidar):.5f}/{np.mean(raw_lidar):.5f}/{np.max(raw_lidar):.5f}")
         # Assemble observation
         self.observation = {
             "velocity": np.array([self.actions[0], self.actions[1]]),
-            # "sensor": np.array([
-            #     self.sensor_left.getValue()/800,
-            #     self.sensor_right.getValue()/800,
-            #     self.sensor_front_right.getValue()/800,
-            #     self.sensor_front_left.getValue()/800,
-            #     self.sensor_back.getValue()/800,
-            #     self.sensor_actual_left.getValue()/800,
-            #     self.sensor_actual_right.getValue()/800
-            # ]),
+            # "sensor": np.array([self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, # ensures that null values are not returned from unintialized sensors
+            #     self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
+            #                          self.sensor_actual_right.getValue()/800]),
             "position": np.array(pos),
-            "lidar": raw_lidar
+            "lidar": raw_lidar,
+            "rotation" : np.array([rot[0], rot[1], rot[2], rot[3]]),
             # "sectional_coverage": self.sectional_coverage / (self.total_spaces / 16),
             # "current_section": self.posToIdx(pos)
         }
 
-        #print (self.actions)
-        # raw_lidar = self.LIDAR.getRangeImage()
-        #print(np.array(raw_lidar))  #print the lidar data
-        lidar_data = np.array(self.LIDAR.getRangeImage())
-        #print("LIDAR shape:", lidar_data.shape)
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
         self.right_motor.setVelocity(self.actions[1])
@@ -387,13 +396,7 @@ class WebotsSimulation(Simulation):
         covered_count, coverage_ratio = self.get_coverage_metric()
         if coverage_ratio > self.best_coverage[1]:
             self.best_coverage = covered_count, coverage_ratio
-
-        # if np.any(self.observation["lidar"][:5] < 0.25):
-        #     self.collisions += 1
-        # # if(self.total_steps % 500 == 0) :
-        #     print("Step: " + str(self.total_steps))
-        #     print(f"Actions: {self.actions[0], self.actions[1]}")
-        #     print(f"Observations: {self.observation}")
+        
     def getObjects(self):
         for obj in self.objects:
             if "floor" in str(obj).lower() or "vacuum" in str(obj).lower():
@@ -426,6 +429,7 @@ class WebotsSimulation(Simulation):
         self.sensor_front_left.enable(self.ms)
         self.sensor_left.enable(self.ms)
         self.LIDAR.enable(self.ms)
+
 
         self.sensor_back.enable(self.ms)
 
@@ -501,14 +505,13 @@ class WebotsSimulation(Simulation):
         print(f"Episode number: {episodes}")
         print(f"This is the metric: {self.metric()}")
         print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")
-        #print ("Lidar Max Range:", self.lidar_max_range)
         # Destroy adhoc objects generated at the beginning of the simulation
         print(f" total episode reward was {self.total_reward}")
-
+        input_val = -0.26 * self.current_total_coverage_sum + 5.2
+        print (f"input_val (max on lidar) {input_val:.2f}")
 
         print(f"This is the metric: {self.metric()}")
         print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%) \n")
-
 
         for i in range(1, self.nextAdHocObjectId):
             name = self._getAdhocObjectName(i)
@@ -516,8 +519,6 @@ class WebotsSimulation(Simulation):
             if node is not None: # ensure that the node actually exisits in the simulation before destroying it
                 node.remove()
             self.supervisor.step(self.ms) # TODO this fixe crashing error on repeated reset calls! I DO NOT KNOW WHY.... temp fix, need to figure out underlying cause
-
-
     def _getAdhocObjectName(self, i: int) -> str:
         return f"SCENIC_ADHOC_{i}"
     
@@ -559,7 +560,21 @@ class WebotsSimulation(Simulation):
             if reward == 0:
                 reward += -.001
             return reward
-    
+    # def checkCollisions(self):
+    #     minDist = 0.01 # minimum distance to be considered a collision
+    #     if np.any(self.observation["sensor"][:5] < 0.1):
+    #         return True
+    #     for i in range(1, len(self.objects)):
+    #         obj = self.objects[i]
+    #         if i < math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
+    #             continue  
+    #         if hasattr(obj, "floor"): # add a attribute for objs excluded in comp
+    #             pass   
+    #         elif (hasattr(obj, "occupiedSpace")): # safety check ensures that we dont try to access something nonexistent
+    #             if( obj.occupiedSpace.intersects(self.objects[0].occupiedSpace)):
+    #                 print("collided with object: " + str(obj))
+    #                 return True
+    #     return False
     def checkCollisions(self):
         minDist = 0.01
         for i in range(len(self.prox_checks)):
@@ -568,80 +583,38 @@ class WebotsSimulation(Simulation):
             if(abs(self.prox_checks[i].signed_distance(np.array([self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]]))) < .335/2 + minDist):
                 return True
         return False
-    # def checkCollisions(self):
-    #     minDist = 0.001
-    #     if np.any(self.observation["sensor"][:5] < 0.01):
-    #             return True
-    #     for i in range(len(self.prox_checks)):
-    #         if math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
-    #             continue  
-    #         if(abs(self.prox_checks[i].signed_distance(np.array([self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]]))) < .335/2 + minDist):
-    #             return True
-    #     return False
 
-    def get_reward(self):
+    def get_reward(self): # "any dummy for now will be okay"
         """
-        Calculate the reward based off of the current state, including
-        coverage, proximity to center, collisions, and invalid actions.
+        Calculate the reward based off of the current state
         """
-        pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
+        step_info = {}
+        pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
         pos = tuple(pos.tolist())
-        
-        #if the vaccum is on the far end of the room withen a threshold of 0.5, we penalize it
-        # if pos[0] < -self.room_width / 2 + 0.5 or pos[0] > self.room_width / 2 - 0.5 or pos[1] < -self.room_length / 2 + 0.5 or pos[1] > self.room_length / 2 - 0.5:
-        #     self.invalid_action = True
-        #     reward = -100  # Heavy penalty for being too far from the center
-            #print("Invalid action: Vacuum is too far from the center of the room")
-            
-        # --- 1. Calculate the base reward (coverage) ---
         reward = self.get_coverage_reward(self.granularity, [pos[0], pos[1]])
-
-        # --- 2. Add center reward ---
-        # center = np.array([0.0, 0.0])
-        # distance_from_center = np.linalg.norm(np.array(pos) - center)
-        # max_distance = np.sqrt(2) * (self.room_width / 2)
-        # center_reward = 1 - (distance_from_center / max_distance)
-        # reward += center_reward
-        # # print(f"Center reward: {center_reward:.4f}") # Uncomment for debugging center reward
-
-        # --- 3. Add reward for driving forward (if applicable) ---
+        
         if np.all(self.observation["velocity"] > 0):
-            reward += .5 # small reward for driving forward
-
-        # --- 4. Handle collisions ---
+            reward += .2 # small reward for driving forwa
+        
         if (self.checkCollisions()): # if any distance sensor is low penalize
             reward += -1
             self.collision_safeguard += 1
             self.collisions += 1
         else:
             self.collision_safeguard = 0
-
-        if self.collision_safeguard >= 40:
-            reward += -100 # Heavy penalty for prolonged collision
-
+        if self.collision_safeguard >= 40 and not self.inter_penalty:
+            reward += -100
+            self.inter_penalty = True
+        
         if self.invalid_action:
             reward += -100
-            #print("Invalid action")
-            self.invalid_action = False # Reset flag
-
-        self.total_reward += reward # Accumulate the step reward for the episode total
-
-        covered_count = len(self.covered_spaces) # self.covered_spaces is used by get_coverage_metric
-        total_cleanable_tiles = self.total_spaces # self.total_spaces from compute_total_tiles
-
-        coverage_ratio = covered_count / total_cleanable_tiles if total_cleanable_tiles > 0 else 0.0
-
-        info = {
-            'coverage_ratio': coverage_ratio,
-            # 'current_step_reward': reward, # You can add the current step's reward here for finer logging
-            # 'total_reward_so_far': self.total_reward, # Or the running total
-            'collision_count': self.collisions, # Expose collision count
-            # Add any other metrics you want to track per step in the 'info' dict.
-        }
-
-        # --- 8. Return the step's reward and the info dictionary ---
-        return reward, info
-
+            print("Invalid action")
+            self.invalid_action = False
+        self.total_reward += reward
+        return reward, step_info
+        
+        if np.all(self.observation["velocity"] > 0):
+            reward += .5 # small reward for driving forward
 
     def get_info(self):
         """
@@ -671,8 +644,8 @@ class WebotsSimulation(Simulation):
             self.actions[1] = 0 # set invalid action to 0 instead
     
     def get_truncation(self):
-        if self.collision_safeguard > 50:
-            return True
+        if self.collision_safeguard > 1000:
+            return True #make true to actually work
         else:
             return False
 

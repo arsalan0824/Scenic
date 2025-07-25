@@ -52,8 +52,10 @@ class ScenicGymEnv(gym.Env):
             try:
                 # The feedback_result (new_clip_range) is passed to scenario generation
                 scene, _ = self.scenario.generate(feedback=self.feedback_result)
-
+                #make a variable so self.current_total_coverage_sum is accessible in simulator.py
+                
                 with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
+                    simulation.current_total_coverage_sum = self.current_total_coverage_sum
                     steps_taken = 0
                     done_episode = lambda: not (simulation.result is None) or (simulation.get_truncation())
                     truncated_episode = lambda: (steps_taken >= self.max_steps)
