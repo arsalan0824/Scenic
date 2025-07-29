@@ -579,7 +579,7 @@ Robot {
       type "generic"
     }
     DEF CREATE_LIDAR Lidar {
-      translation 0 0 0.04
+      translation 0 0 0
       rotation 0 0 1 0
       name "LIDAR"
       fieldOfView  6.28
