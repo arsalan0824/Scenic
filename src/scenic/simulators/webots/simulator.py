@@ -371,7 +371,10 @@ class WebotsSimulation(Simulation):
         # print (f"input_val (max on lidar) {input_val:.5f}")
         # #print coverage percentage
         # print(f"Coverage percentage: {self.best_coverage[1] * 100:.2f}%")
-
+        min_lidar = min(self.observation["lidar"])
+        # print(min_lidar)
+        # if (min_lidar < 0.4):
+        #     # print ("smt too close to lidar")
         #------------------------------------------------------------------
         
         #print(f"Sum of covered spaces last 10 episodes: {np.sum(self.last_10_episode_coverages)}") #print sum of covered spaces last 10 episodes
@@ -607,8 +610,7 @@ class WebotsSimulation(Simulation):
             self.collision_safeguard = 0
         if self.collision_safeguard >= 40 and not self.inter_penalty:
             reward += -100
-            self.inter_penalty = True
-        
+            self.inter_penalty = True        
         if self.invalid_action:
             reward += -100
             print("Invalid action")
@@ -618,6 +620,10 @@ class WebotsSimulation(Simulation):
         
         if np.all(self.observation["velocity"] > 0):
             reward += .5 # small reward for driving forward
+        
+        min_lidar = min(self.observation["lidar"])
+        if (min_lidar < 0.4):
+            reward += -1
 
     def get_info(self):
         """
