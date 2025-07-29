@@ -603,7 +603,7 @@ class WebotsSimulation(Simulation):
             reward += .2 # small reward for driving forwa
         
         if (self.checkCollisions()): # if any distance sensor is low penalize
-            reward += -1
+            reward += -100
             self.collision_safeguard += 1
             self.collisions += 1
         else:
