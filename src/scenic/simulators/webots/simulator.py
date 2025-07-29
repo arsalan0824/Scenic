@@ -678,7 +678,6 @@ def getFieldSafe(webotsObject, fieldName):
     # if the pointer points to None, then the field does not exist on this object
     return None
 
-
 def isPhysicsEnabled(webotsObject):
     """Whether or not physics is enabled for this `WebotsObject`"""
     if webotsObject.webotsAdhoc is None:

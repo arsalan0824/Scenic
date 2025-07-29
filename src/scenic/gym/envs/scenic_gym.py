@@ -47,7 +47,7 @@ class ScenicGymEnv(gym.Env):
         self.total_episodes_completed = 0
         self.current_total_coverage_sum = 0
 
-    def _make_run_loop(self):
+    def _make_run_loop(self): 
         while True:
             try:
                 # The feedback_result (new_clip_range) is passed to scenario generation
