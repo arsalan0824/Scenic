@@ -83,7 +83,8 @@ class ScenicGymEnv(gym.Env):
                             self.current_total_coverage_sum = np.sum(self.last_10_episode_coverages)
 
                             # Condition for printing episode coverage summary and updating feedback
-                            if self.total_episodes_completed % 10 == 0:
+                            if self.current_total_coverage_sum > 5:
+                                print ("lidar has passed 50%, clipping range will be adjusted")
                                 # Print episode coverage summary
                                 print(f"Episode {self.total_episodes_completed}: "
                                       f"Sum of last {len(self.last_10_episode_coverages)} "
@@ -98,7 +99,8 @@ class ScenicGymEnv(gym.Env):
                             # for subsequent scenario generations if it hasn't been yet.
                             elif self.feedback_fn is not None and self.feedback_result is None:
                                 self.feedback_result = self.feedback_fn(self.current_total_coverage_sum)
-
+                            else:
+                                print("Feedback function is None, no new clip range set.")
 
                             if self.record_scenic_sim_results:
                                 self.simulation_results.append(simulation.result)

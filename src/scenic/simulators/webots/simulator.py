@@ -167,7 +167,7 @@ class WebotsSimulation(Simulation):
         self.observation = {
             "velocity": np.zeros(2), 
             #"sensor": np.zeros(7),
-            "lidar": np.full(36, 0.01), #there are 36 lidar sensors
+            "lidar": np.full(32, 0.25), #there are 32 lidar sensors
             "position": np.zeros(2),
             "rotation": [0,0,0,0]
             # "sectional_coverage":np.zeros(16),
@@ -346,21 +346,25 @@ class WebotsSimulation(Simulation):
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
         #if episode is under 10 input_val=2.6, else input_val=100- self.current_total_coverage_sum
         #self.current_total_coverage_sum max assuming 100% acorss 10 episodes is 10
-        input_val = -0.26 * self.current_total_coverage_sum + 5.2
-        if episodes < 9:
-            input_val = 5.2
+        # input_val = -0.26 * self.current_total_coverage_sum + 5.2
+        input_val = -0.03 * self.current_total_coverage_sum + 1
+        if self.current_total_coverage_sum < 5:
+            # input_val = 5.2
+            input_val = 1
         else:
-            input_val = -0.26 * self.current_total_coverage_sum + 5.2
+            # input_val = -0.26 * self.current_total_coverage_sum + 5.2
+            input_val = -0.03 * self.current_total_coverage_sum + 1
+
 
         raw_lidar = np.array(self.LIDAR.getRangeImage(), dtype=np.float64)
-        raw_lidar = np.nan_to_num(raw_lidar, nan=input_val, posinf=input_val, neginf=0.01)
-        #max value is input_val, min value is 0.01
-        raw_lidar = np.clip(raw_lidar, 0.01, input_val)
+        raw_lidar = np.nan_to_num(raw_lidar, nan=input_val, posinf=input_val, neginf=0.25)
+        #max value is input_val, min value is 0.25
+        raw_lidar = np.clip(raw_lidar, 0.25, input_val)
 
         #-----------------------------------------------------------------------
         # # #print episode
         # print(f"Episode number: {episodes}")
-        # #print lidar values, not normalized
+        ##print lidar values, not normalized
         #print(f"LIDAR values: {raw_lidar}") #print lidar values for debugging
         # #print sum of covered spaces last 10 episodes
         # print (f"sum of last 10 episodes {self.current_total_coverage_sum}")
@@ -507,8 +511,7 @@ class WebotsSimulation(Simulation):
         print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")
         # Destroy adhoc objects generated at the beginning of the simulation
         print(f" total episode reward was {self.total_reward}")
-        input_val = -0.26 * self.current_total_coverage_sum + 5.2
-        print (f"input_val (max on lidar) {input_val:.2f}")
+        # input_val = -0.26 * self.current_total_coverage_sum + 5.2
 
         print(f"This is the metric: {self.metric()}")
         print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%) \n")
@@ -644,7 +647,7 @@ class WebotsSimulation(Simulation):
             self.actions[1] = 0 # set invalid action to 0 instead
     
     def get_truncation(self):
-        if self.collision_safeguard > 1000:
+        if self.collision_safeguard > 50:
             return True #make true to actually work
         else:
             return False
