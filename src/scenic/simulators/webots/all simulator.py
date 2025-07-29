@@ -674,7 +674,7 @@ def getFieldSafe(webotsObject, fieldName):
 
     # if the pointer points to None, then the field does not exist on this object
     return None
-
+#-
 
 def isPhysicsEnabled(webotsObject):
     """Whether or not physics is enabled for this `WebotsObject`"""
@@ -682,4 +682,4 @@ def isPhysicsEnabled(webotsObject):
         return webotsObject
     if isinstance(webotsObject.webotsAdhoc, dict):
         return webotsObject.webotsAdhoc.get("physics", True)
-    raise TypeError(f"webotsAdhoc must be None or a dictionary") ----
+    raise TypeError(f"webotsAdhoc must be None or a dictionary")
