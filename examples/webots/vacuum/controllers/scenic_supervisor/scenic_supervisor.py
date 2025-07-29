@@ -19,33 +19,6 @@ from stable_baselines3.common.evaluation import evaluate_policy
 import matplotlib.pyplot as plt
 import time
 
-# class GAECallback(BaseCallback):
-#     def _on_step(self) -> bool:
-#         # SB3 makes a `dones` array available here
-#         dones = self.locals.get("dones")
-#         # whenever any env signals done=True, an episode just ended
-#         if dones is not None and np.any(dones):
-#             # 1) grab the last rollout's per-step GAE
-#             advantages = self.model.rollout_buffer.advantages  # shape (n_steps * n_envs,)
-#             # 2) turn it into one scalar (sum of absolutes is common)
-#             priority = np.average(np.abs(advantages))
-
-#             # 3) find your ScenicGymEnv inside the VecEnv/Monitor wrappers
-#             envs = getattr(self.training_env, "envs", [self.training_env])
-#             for e in envs:
-#                 real = getattr(e, "env", e)    # unwrap Monitor if present
-#                 if isinstance(real, ScenicGymEnv):
-#                     idx = real.working_index
-#                     # overwrite the PLR buffer entry for this scene
-#                     if idx < len(real.buffer_learning_potential):
-#                         real.buffer_learning_potential[idx] = priority
-#                     else:
-#                         real.buffer_learning_potential = np.append(
-#                             real.buffer_learning_potential, priority
-#                         )
-#         return True 
-# gae_cb = GAECallback()
-
 start = time.time()
 
 supervisor = Supervisor() # Collect the Supervisor node from the simulation
@@ -54,8 +27,8 @@ simulator = WebotsSimulator(supervisor) # Create an instance of the WebotsSImula
 
 prefix = scenic.__file__[:-22]
 scenario = scenic.scenarioFromFile(prefix +  "examples/webots/vacuum/vacuum.scenic",
-                                   model="scenic.simulators.webots.model",
-                                   mode2D=False) # generate the scenario from the corresponding Scenic file
+                                model="scenic.simulators.webots.model",
+                                mode2D=False) # generate the scenario from the corresponding Scenic file
 
 
 
@@ -65,30 +38,28 @@ observation_space = gym.spaces.Dict({
     "velocity": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
     "sensor": gym.spaces.Box(low=np.array([0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1]),shape=(7,),dtype=np.float64), # defines the range of observations of the agent
     "position": gym.spaces.Box(low=np.array([-2.6, -2.6]), high=np.array([2.6, 2.6]), shape=(2,),dtype=np.float64),
-    #"sectional_coverage": gym.spaces.Box(low=np.zeros(16), high=np.ones(16), shape=(16,),dtype=np.float64),
-    # "current_section": gym.spaces.Box(low=np.array([0]), high=np.array([15]), shape=(1,),dtype=int)
 })
-max_steps = 100
+max_steps = 10000
 env = ScenicGymEnv(scenario, 
-                   simulator, 
-                   render_mode=None, 
-                   max_steps=max_steps,  
-                   action_space=action_space,
-                   observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
+                simulator, 
+                render_mode=None, 
+                max_steps=max_steps,  
+                action_space=action_space,
+                observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
 env = Monitor(env)
 
-episodes= 21
+episodes= 50
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
-model = PPO("MultiInputPolicy", env, verbose=2, learning_rate=0.0002,ent_coef=0.05)
+model = PPO("MultiInputPolicy", env, verbose=2, learning_rate=0.0002,ent_coef=0.025)
 # Create an instance of an agent 
-model.set_parameters("baseline.zip") # Load the parameters of a previously trained agent
+#model.set_parameters("7_29 - F50, ent(.025).zip") # Load the parameters of a previously trained agent
 model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
-#model.save("7_21 - 50 + 50 VerifAI")               # Save the model after training
+model.save("7_29 - F50, ent(.025)")               # Save the model after training
 
-#mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False, deterministic=False)
-#print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
+mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False, deterministic=True)
+print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 env.env.logScores()
 
@@ -116,3 +87,4 @@ print(f" training time was {(end - start) / 60} minutes for {total_timesteps} ti
 
 
 
+from typing import Dict, Any

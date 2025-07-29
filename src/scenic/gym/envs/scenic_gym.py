@@ -15,6 +15,7 @@ setDebuggingOptions(verbosity=2)
 #TODO make ResetException
 
 file_path = "../../../../../output.csv"
+point_file_path = "../../../../../points.csv"
 
 def write_csv(name, coverage, collisions, rewards):
     rows = [[f"coverage_{name}"] + list(coverage),
@@ -23,6 +24,11 @@ def write_csv(name, coverage, collisions, rewards):
             ]
     df = pd.DataFrame(rows)
     df.to_csv(file_path, index=False, mode='a', header=False)
+    
+def write_point_records(name, timewise_points):
+    rows = [[f"{name}"] + list(timewise_points)]
+    df = pd.DataFrame(rows)
+    df.to_csv(point_file_path, index=False, mode='a',header=False)
 class ResetException(Exception):
     def __init__(self):
         super().__init__("Resetting")
@@ -69,8 +75,10 @@ class ScenicGymEnv(gym.Env):
         
         #changeable stuff for saving data to csv
         self.save_to_csv = True # whether to save data to csv
-        self.run_name = "default_run" # name of the run, used for saving data to csv
-        self.total_steps = 6000 # total number of episodes to run, used for saving data to csv
+        self.record_points = True
+        self.run_name = "7_29 - F50, ent(.025)" # name of the run, used for saving data to csv
+        self.total_steps = 10000*50 # total number of timesteps to run, used for saving data to csv
+    
         
         #load arrays
         self.resampling_weights =  np.array([]) # resamling weights of scenes in the buffer
@@ -93,6 +101,7 @@ class ScenicGymEnv(gym.Env):
         self.episode_coverages = []  
         self.episode_collisions = []  
         self.episode_rewards = []
+        self.timewise_points = None
 
     def _make_run_loop(self):
         while True:
@@ -146,10 +155,14 @@ class ScenicGymEnv(gym.Env):
                         info = simulation.get_info()
                         reward = simulation.get_reward()
                         self.counting_reward += reward
+                        if simulation.covered_spaces != None and simulation.coverage_timesteps != None:
+                            self.timewise_points = list(zip(simulation.coverage_timesteps, simulation.covered_spaces))
                         if done():
                             if simulation.result is None:
                                 simulation.terminateSimulation(TerminationType.terminatedByUser, "early truncation")
                             print("Simulation done")
+                            if self.record_points:
+                                write_point_records(f"{self.run_name}_{len(self.episode_coverages)}", self.timewise_points)
                             self.logScores()
                             if not self.use_verifai:
                                 self.feedback_result = self.feedback_fn(simulation.result)
@@ -166,12 +179,12 @@ class ScenicGymEnv(gym.Env):
             except ResetException:
                 if self.total_steps_taken >= self.total_steps and self.save_to_csv:
                     write_csv(self.run_name, self.episode_coverages, self.episode_collisions, self.episode_rewards)
-                    print("reset exception caught")
-                    print(f"Episode coverages: {self.episode_coverages}")
-                    print(f"Mean and std of coverages: {np.mean(self.episode_coverages)} and {np.std(self.episode_coverages)}")
-                    print(f"Episode collisions: {self.episode_collisions}")
-                    print(f"Mean and std of collisions: {np.mean(self.episode_collisions)} and {np.std(self.episode_collisions)}")
-                    print(f"Excel splittable: {np.mean(self.episode_coverages)},{np.std(self.episode_coverages)},{np.mean(self.episode_collisions)},{np.std(self.episode_collisions)}")
+                print("reset exception caught")
+                print(f"Episode coverages: {self.episode_coverages}")
+                print(f"Mean and std of coverages: {np.mean(self.episode_coverages)} and {np.std(self.episode_coverages)}")
+                print(f"Episode collisions: {self.episode_collisions}")
+                print(f"Mean and std of collisions: {np.mean(self.episode_collisions)} and {np.std(self.episode_collisions)}")
+                print(f"Excel splittable: {np.mean(self.episode_coverages)},{np.std(self.episode_coverages)},{np.mean(self.episode_collisions)},{np.std(self.episode_collisions)}")
                 continue
 
     def reset(self, seed=None, options=None): # TODO will setting seed here conflict with VerifAI's setting of seed?
@@ -195,7 +208,7 @@ class ScenicGymEnv(gym.Env):
         if terminated or truncated:
             self.episode_coverages.append(info.get("coverage", 0))
             self.episode_collisions.append(info.get("collisions", 0))
-            self.episode_rewards.append(reward)
+            self.episode_rewards.append(self.counting_reward)
         
         return observation, reward, terminated, truncated, info
     

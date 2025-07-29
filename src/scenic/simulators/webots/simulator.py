@@ -97,6 +97,7 @@ class WebotsSimulation(Simulation):
         #metrics and rewards
         self.best_coverage = 0,0
         self.covered_spaces = []
+        self.coverage_timesteps = []
         self.invalid_action = False
         self.total_reward = 0
         
@@ -142,13 +143,10 @@ class WebotsSimulation(Simulation):
         self.ms = round(1000 * self.timestep)
 
         #observation space
-        self.sectional_coverage = np.zeros(16)
         self.observation = {
             "velocity": np.zeros(2), 
             "sensor": np.zeros(7),
             "position": np.zeros(2),
-            # "sectional_coverage":np.zeros(16),
-            # "current_section": 0
         } # TODO Need to fix obs and initialziation        
         
         super().__init__(scene, timestep=timestep, **kwargs)
@@ -326,8 +324,6 @@ class WebotsSimulation(Simulation):
                 self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
                                      self.sensor_actual_right.getValue()/800]),       
             "position": np.array(pos),
-            # "sectional_coverage": self.sectional_coverage / (self.total_spaces / 16),
-            # "current_section": self.posToIdx(pos)
         }
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
@@ -444,7 +440,7 @@ class WebotsSimulation(Simulation):
         episodes += 1
         print(f"Episode number: {episodes}")
         #print(f"This is the metric: {self.metric()}")
-        #print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")
+        print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")
         # Destroy adhoc objects generated at the beginning of the simulation
         #print(f" total episode reward was {self.total_reward}")
 
@@ -491,25 +487,11 @@ class WebotsSimulation(Simulation):
                 if(point not in self.covered_spaces):
                     reward += 1
                     self.covered_spaces.append(point)
-                    self.sectional_coverage[self.posToIdx(pos)] += 1
+                    self.coverage_timesteps.append(self.total_steps)
             if reward == 0:
                 reward += -.001
             return reward
-    # def checkCollisions(self):
-    #     minDist = 0.01 # minimum distance to be considered a collision
-    #     if np.any(self.observation["sensor"][:5] < 0.1):
-    #         return True
-    #     for i in range(1, len(self.objects)):
-    #         obj = self.objects[i]
-    #         if i < math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
-    #             continue  
-    #         if hasattr(obj, "floor"): # add a attribute for objs excluded in comp
-    #             pass   
-    #         elif (hasattr(obj, "occupiedSpace")): # safety check ensures that we dont try to access something nonexistent
-    #             if( obj.occupiedSpace.intersects(self.objects[0].occupiedSpace)):
-    #                 print("collided with object: " + str(obj))
-    #                 return True
-    #     return False
+
     def checkCollisions(self):
         minDist = 0.001
         if np.any(self.observation["sensor"][:5] < minDist):
