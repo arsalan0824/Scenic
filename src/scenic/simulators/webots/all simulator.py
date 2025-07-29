@@ -603,7 +603,7 @@ class WebotsSimulation(Simulation):
         else:
             self.collision_safeguard = 0
         if self.collision_safeguard >= 40 and not self.inter_penalty:
-            reward += -100
+            reward += -1
             self.inter_penalty = True
         
         if self.invalid_action:
