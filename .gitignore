@@ -20,6 +20,13 @@ poetry.lock
 # VSCode files
 *.vscode
 
+#trained models
+*.zip
+
+#images 
+*.jpg
+*.png
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
