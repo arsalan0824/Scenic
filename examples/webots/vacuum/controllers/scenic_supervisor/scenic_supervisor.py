@@ -87,7 +87,7 @@ model = PPO.load("PPO_vacuum_agent_latest_arsalan.zip", env=training_env)
 # print("Loaded model from file.")
 model.learn(total_timesteps)
 print("Training completed.")
-model.save("PPO_vacuum_agent_latest")
+# model.save("PPO_vacuum_agent_latest_ethancodeandlidar")
 del model
 del training_env
 gc.collect()

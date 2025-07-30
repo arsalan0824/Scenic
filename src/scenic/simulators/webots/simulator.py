@@ -21,9 +21,10 @@ import math
 from os import path
 import tempfile
 from textwrap import dedent
-
+import matplotlib.pyplot as plt
 import numpy as np
 import trimesh
+from scipy.stats import gaussian_kde
 
 from scenic.core.regions import MeshVolumeRegion
 from scenic.core.simulators import Simulation, Simulator
@@ -99,6 +100,7 @@ class WebotsSimulation(Simulation):
             directly; e.g. :scenic:`simulation().supervisor.setLabel({...})`.
     """
     def __init__(self, scene, supervisor, coordinateSystem=ENU, *, timestep, parent_simulator=None, lidar_max_range=None, **kwargs): # Accept lidar_max_range
+
         #room data
         self.room_width = 5.    
         self.room_length = 5.   
@@ -374,7 +376,7 @@ class WebotsSimulation(Simulation):
         # min_lidar = min(self.observation["lidar"])
         # print(min_lidar)
         # if (min_lidar < 0.4):
-        #     # print ("smt too close to lidar")
+
         #------------------------------------------------------------------
         
         #print(f"Sum of covered spaces last 10 episodes: {np.sum(self.last_10_episode_coverages)}") #print sum of covered spaces last 10 episodes
@@ -506,9 +508,60 @@ class WebotsSimulation(Simulation):
             "final_score": score
         }
 
+
+    def create_heatmap(self,coordinates):
+            if not coordinates:
+                print("No data to plot.")
+                return
+
+            x, y = zip(*coordinates)
+            x = np.asarray(x)
+            y = np.asarray(y)
+
+            data = np.vstack([x, y])
+
+            if len(np.unique(data, axis=1)) <= 1:
+                plt.figure(figsize=(8, 6))
+                plt.scatter(x, y, color='red', s=100)
+                plt.title('Single Coordinate Point')
+                plt.xlabel('X-coordinate')
+                plt.ylabel('Y-coordinate')
+                plt.xlim(-2.545, 2.545)
+                plt.ylim(-2.545, 2.545)
+                plt.grid(True)
+                plt.show()
+                return
+
+            try:
+                kde = gaussian_kde(data)
+            except np.linalg.LinAlgError:
+                print("cant be llinear.")
+                return
+
+            # Always use a fixed 5.09 x 5.09 grid
+            x_min, x_max = -2.545, 2.545
+            y_min, y_max = -2.545, 2.545
+
+            xi, yi = np.mgrid[x_min:x_max:100j, y_min:y_max:100j]
+            zi = kde(np.vstack([xi.flatten(), yi.flatten()])).reshape(xi.shape)
+
+            plt.figure(figsize=(8, 6))
+            plt.pcolormesh(xi, yi, zi, shading='gouraud', cmap='coolwarm')
+            plt.colorbar(label='Density')
+            plt.title('Heatmap of Covered Spaces')
+            plt.xlabel('X-coordinate')
+            plt.ylabel('Y-coordinate')
+            plt.xlim(x_min, x_max)
+            plt.ylim(y_min, y_max)
+            plt.grid(True)
+            plt.show()
+
+            
     def destroy(self):
         global episodes
         episodes += 1
+        if episodes == 1:
+            self.create_heatmap(self.covered_spaces)
         print(f"Episode number: {episodes}")
         print(f"This is the metric: {self.metric()}")
         print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")
@@ -566,6 +619,7 @@ class WebotsSimulation(Simulation):
             if reward == 0:
                 reward += -.001
             return reward
+            
     # def checkCollisions(self):
     #     minDist = 0.01 # minimum distance to be considered a collision
     #     if np.any(self.observation["sensor"][:5] < 0.1):
