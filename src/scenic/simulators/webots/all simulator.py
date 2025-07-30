@@ -1,685 +1,140 @@
-# """ethan + arsalan simulator.py
-# Interface to Webots for dynamic simulations.
+import sys
+import os
 
-# This interface is intended to be instantiated from inside the controller script
-# of a Webots `Robot node`_ with the ``supervisor`` field set to true. Such a
-# script can create a `WebotsSimulator` (passing in a reference to the supervisor
-# node) and then call its `simulate` method as usual to run a simulation. For an
-# example, see :file:`examples/webots/generic/controllers/scenic_supervisor.py`.
+try:
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    scenic_src_path = os.path.normpath(os.path.join(current_script_dir, '..', '..', '..', '..', 'src'))
+    if scenic_src_path not in sys.path:
+        sys.path.insert(0, scenic_src_path)
+except Exception as e:
+    print(f"Warning: Could not add Scenic src to path. Error: {e}")
 
-# Scenarios written for this interface should use our generic Webots world model
-# :doc:`scenic.simulators.webots.model` or a model derived from it. Objects which
-# are instances of `WebotsObject` will be matched to Webots nodes; see the model
-# documentation for details.
+from scenic.gym import ScenicGymEnv
+import scenic
+from scenic.simulators.webots import WebotsSimulator
 
-# .. _Robot node: https://www.cyberbotics.com/doc/reference/robot
-# """
+import gymnasium as gym
+import numpy as np
 
-# from collections import defaultdict
-# import ctypes
-# import math
-# from os import path
-# import tempfile
-# from textwrap import dedent
+from controller import Supervisor
 
-# import numpy as np
-# import trimesh
+from stable_baselines3 import PPO
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.evaluation import evaluate_policy
+#-
+import matplotlib.pyplot as plt
+import time
+import gc
+from collections import deque
 
-# from scenic.core.regions import MeshVolumeRegion
-# from scenic.core.simulators import Simulation, Simulator
-# from scenic.core.type_support import toOrientation
-# from scenic.core.vectors import Vector
-# from scenic.simulators.webots.utils import ENU, WebotsCoordinateSystem
-# from controller import DistanceSensor
+def adjust_clip_range(current_total_coverage_sum: float) -> float:
+    # input_val = -0.26 * current_total_coverage_sum + 5.2
+    input_val = -0.03 * current_total_coverage_sum + 1
+    return input_val
 
-# from trimesh.creation import box
+start = time.time()
 
-# import math, numpy as np
-# from trimesh.proximity import closest_point
-# from trimesh.proximity import ProximityQuery
-# file_path = "../../../../../../output.txt"
+supervisor = Supervisor()
+simulator = WebotsSimulator(supervisor)
+print("Webots simulator initialized.")
+prefix = scenic.__file__[:-22]
 
-# def ptf(message):
-#     #adds onto the file
-#     with open(file_path, 'a') as f:
-#         print(message, file=f)
-        
-# def otf(message):
-#     #wipes the file and prints message
-#     with open(file_path, 'w') as f:
-#         print(message, file=f)
+action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))
+observation_space = gym.spaces.Dict({
+    "velocity": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
+    "position": gym.spaces.Box(low=np.array([-2.6, -2.6]), high=np.array([2.6, 2.6]), shape=(2,),dtype=np.float64),
+    "lidar": gym.spaces.Box(low=0.25, high=1, shape=(32,), dtype=np.float64),
+    "rotation": gym.spaces.Box(low=np.array([-1,-1,-1,-1]), high=np.array([1,1,1,1]), shape=(4,), dtype=np.float64)
+})
+print("Action and observation spaces defined.")
+max_steps = 10000
 
-# episodes = 0
-# saved_stepcount = 0
-# class WebotsSimulator(Simulator):
-#     """`Simulator` object for Webots.
+iterations = 50
+timesteps_per_itr = max_steps * 1
 
-#     Args:
-#         supervisor: Supervisor node handle from the Webots Python API.
-#     """
-#     episode_count = 0
-#     current_simulation = None
-#     last_avg_return = None
+scenario_template = scenic.scenarioFromFile(prefix + "examples/webots/vacuum/vacuum.scenic",
+                                 model="scenic.simulators.webots.model",
+                                 mode2D=False)
+print("Scenario template loaded.")
+
+training_env_unwrapped = ScenicGymEnv(scenario_template,
+                   simulator,
+                   render_mode=None,
+                   max_steps=max_steps,
+                   action_space=action_space,
+                   observation_space=observation_space,
+                   feedback_fn=adjust_clip_range
+                   )
+print("Training environment created.")
+training_env = Monitor(training_env_unwrapped)
+
+total_timesteps = iterations * timesteps_per_itr
+
+model = PPO("MultiInputPolicy", training_env, verbose=2, learning_rate=0.0002)
+
+
+# for i in range(iterations):
+#     print(f"\n--- Training Progress: Iteration {i+1}/{iterations} ---")
+
+#     model.learn(total_timesteps=timesteps_per_itr)
     
-#     def __init__(self, supervisor):
-#         super().__init__()
-#         self.supervisor = supervisor
-#         topLevelNodes = supervisor.getRoot().getField("children")
-#         worldInfo = None
-#         for i in range(topLevelNodes.getCount()):
-#             child = topLevelNodes.getMFNode(i)
-#             if child.getTypeName() == "WorldInfo":
-#                 worldInfo = child
-#                 break
-#         if not worldInfo:
-#             raise RuntimeError("Webots world does not contain a WorldInfo node")
-#         system = worldInfo.getField("coordinateSystem").getSFString()
-#         self.coordinateSystem = WebotsCoordinateSystem(system)
-#         print("testing output")
-
-#     def createSimulation(self, scene, lidar_max_range=None, **kwargs): #accept lidar_max_range
-#             self.episode_count += 1
-#             self.current_simulation = WebotsSimulation(
-#                 scene,
-#                 self.supervisor,
-#                 coordinateSystem=self.coordinateSystem,
-#                 parent_simulator=self,
-#                 # lidar_max_range=lidar_max_range, #Pass it to WebotsSimulation
-#                 **kwargs
-#             )
-#             return self.current_simulation
-
-
-# class WebotsSimulation(Simulation):
-#     """`Simulation` object for Webots.
-
-#     Attributes:
-#         supervisor: Webots supervisor node used for the simulation. This is
-#             exposed for the use of scenarios which need to call Webots APIs
-#             directly; e.g. :scenic:`simulation().supervisor.setLabel({...})`.
-#     """
-#     def __init__(self, scene, supervisor, coordinateSystem=ENU, *, timestep, parent_simulator=None, lidar_max_range=None, **kwargs): # Accept lidar_max_range
-#         #room data
-#         self.room_width = 5.    
-#         self.room_length = 5.   
-#         self.granularity = 0.05    
-#         self.total_spaces = (2 * np.floor(self.room_width / (2*self.granularity)) + 1)**2 - 4 #-4 for each of the corners
-#         self.obj_dims = []
-        
-#         #collisions & collision detection
-#         self.collisions = 0
-#         self.collision_safeguard = 0
-#         self.inter_penalty = False
-#         self.prox_checks = []
-#         self.spheres = []
-        
-#         #metrics and rewards
-#         self.best_coverage = 0,0
-#         self.covered_spaces = []
-#         self.invalid_action = False
-#         self.total_reward = 0
-        
-#         #simulation data
-#         self.time_elapsed = 0
-#         self.total_reward = 0
-#         self.total_steps = 0
-        
-#         #i dont know
-#         self.supervisor = supervisor
-#         self.coordinateSystem = coordinateSystem
-#         self.mode2D = scene.compileOptions.mode2D
-#         self.nextAdHocObjectId = 1
-#         self.usedObjectNames = defaultdict(lambda: 0)
-#         self.timestep = supervisor.getBasicTimeStep() / 1000 if timestep is None else timestep
-#         # directory to store proto files for adhoc webots objects
-#         self.tmpMeshDir = tempfile.mkdtemp()
-#         self.supervisor_node = self.supervisor.getSelf()
-
-#         #device inputs
-#         self.left_motor = self.supervisor.getDevice("right wheel motor")
-#         self.right_motor = self.supervisor.getDevice("left wheel motor")
-
-#         self.sensor_right = self.supervisor.getDevice("cliff_right")
-#         self.sensor_front_right = self.supervisor.getDevice("cliff_front_right")
-
-#         self.sensor_left = self.supervisor.getDevice("cliff_left")
-#         self.sensor_front_left = self.supervisor.getDevice("cliff_front_left")
-
-#         self.sensor_back = self.supervisor.getDevice("cliff_back")
-#         self.sensor_actual_left = self.supervisor.getDevice("actual_left")
-#         self.sensor_actual_right = self.supervisor.getDevice("actual_right")
-#         self.LIDAR = self.supervisor.getDevice("LIDAR")
-
-#         self.left_motor.setPosition(float('inf'))
-#         self.right_motor.setPosition(float('inf'))
-
-#         self.left_motor.setVelocity(0)
-#         self.right_motor.setVelocity(0)
-#         self.velocity_ranges = [0,16.129]
-
-#         self.enable_sensors = False
-#         self.actions = [0,0]
-#         self.ms = round(1000 * self.timestep)
-
-#         #observation space
-#         self.sectional_coverage = np.zeros(16)
-
-#         self.observation = {
-#             "velocity": np.zeros(2), 
-#             #"sensor": np.zeros(7),
-#             "lidar": np.full(36, 0.01), #there are 36 lidar sensors
-#             "position": np.zeros(2),
-#             "rotation": [0,0,0,0]
-#             # "sectional_coverage":np.zeros(16),
-#             # "current_section": 0
-#         } # TODO Need to fix obs and initialziation        
-        
-#         super().__init__(scene, timestep=timestep, **kwargs)
-
-#     def setup(self):
-#         super().setup()
-#         # Reset Webots simulation
-#         self.supervisor.simulationResetPhysics()
-#         self.compute_total_tiles()
-
-
-#     def createObjectInSimulator(self, obj):
-#         if not hasattr(obj, "webotsName"):
-#             return  # not a Webots object
-
-#         # Find the name of the Webots node for this object.
-#         name = None
-#         if obj.webotsAdhoc is not None:
-#             # Dynamically generate object from Scenic object
-#             objectRawMesh = obj.shape.mesh
-#             objectScaledMesh = MeshVolumeRegion(
-#                 mesh=objectRawMesh,
-#                 dimensions=(obj.width, obj.length, obj.height),
-#             ).mesh
-#             objFilePath = path.join(self.tmpMeshDir, f"{self.nextAdHocObjectId}.obj")
-#             trimesh.exchange.export.export_mesh(objectScaledMesh, objFilePath)
-
-#             name = self._getAdhocObjectName(self.nextAdHocObjectId)
-#             protoName = (
-#                 "ScenicObjectWithPhysics" if isPhysicsEnabled(obj) else "ScenicObject"
-#             )
-          
- 
-#             objFilePath = str(objFilePath).replace("\\", "\\\\")# Temporary fix, not sure if this is the right way to do this? hmm
-
-#             protoDef = dedent(
-#                 f"""
-#                 DEF {name} {protoName} {{
-#                     url "{objFilePath}"
-#                 }}
-#                 """
-#             )
-#             rootNode = self.supervisor.getRoot()
-#             rootChildrenField = rootNode.getField("children")
-#             rootChildrenField.importMFNodeFromString(-1, protoDef)
-#             self.nextAdHocObjectId += 1
-#         else:
-#             if obj.webotsName:
-#                 name = obj.webotsName
-#             else:
-#                 ty = obj.webotsType
-#                 if not ty:
-#                     raise RuntimeError(f"object {obj} has no webotsName or webotsType")
-#                 nextID = self.usedObjectNames[ty]
-#                 self.usedObjectNames[ty] += 1
-#                 if nextID == 0 and self.supervisor.getFromDef(ty):
-#                     name = ty
-#                 else:
-#                     name = f"{ty}_{nextID}"
-
-#         # Get handle to Webots node.
-#         webotsObj = self.supervisor.getFromDef(name)
-#         if webotsObj is None:
-#             raise SimulationCreationError(f"Webots object {name} does not exist in world")
-#         obj.webotsObject = webotsObj
-#         obj.webotsName = name
-
-#         # Set the fields of the Webots object:
-
-#         # position
-#         if self.mode2D:  # 2D compatibility mode
-#             # Set initial elevation if unspecified
-#             if obj.elevation is None:
-#                 pos = webotsObj.getField("translation").getSFVec3f()
-#                 spos = self.coordinateSystem.positionToScenic(pos)
-#                 obj.elevation = spos[2]
-
-#             # Overwrite Z value with elevation
-#             pos = self.coordinateSystem.positionFromScenic(
-#                 Vector(obj.position.x, obj.position.y, obj.elevation) + obj.positionOffset
-#             )
-#             webotsObj.getField("translation").setSFVec3f(pos)
-#         else:
-#             pos = self.coordinateSystem.positionFromScenic(
-#                 obj.position + obj.positionOffset
-#             )
-#             webotsObj.getField("translation").setSFVec3f(pos)
-
-#         # orientation
-#         offsetOrientation = toOrientation(obj.rotationOffset)
-#         webotsObj.getField("rotation").setSFRotation(
-#             self.coordinateSystem.orientationFromScenic(
-#                 obj.orientation, offsetOrientation
-#             )
-#         )
-
-#         # density
-#         densityField = getFieldSafe(webotsObj, "density")
-#         if densityField is not None:
-#             if obj.density is None:
-#                 # Get initial value for property if unspecified
-#                 obj.density = densityField.getSFFloat()
-#             else:
-#                 densityField.setSFFloat(float(obj.density))
-
-#         # battery
-#         battery = getattr(obj, "battery", None)
-#         if battery:
-#             if not isinstance(battery, (tuple, list)) or len(battery) != 3:
-#                 raise TypeError(f'"battery" of {name} does not have 3 components')
-#             field = webotsObj.getField("battery")
-#             field.setMFFloat(0, battery[0])
-#             field.setMFFloat(1, battery[1])
-#             field.setMFFloat(2, battery[2])
-
-#         # customData
-#         customData = getattr(obj, "customData", None)
-#         if customData:
-#             if not isinstance(customData, str):
-#                 raise TypeError(f'"customData" of {name} is not a string')
-#             webotsObj.getField("customData").setSFString(customData)
-
-#         # controller
-#         if obj.controller:
-#             controllerField = webotsObj.getField("controller")
-#             curCont = controllerField.getSFString()
-#             if obj.controller != curCont:
-#                 # the following operation also causes the controller to be restarted
-#                 controllerField.setSFString(obj.controller)
-#             elif obj.resetController:
-#                 webotsObj.restartController()
-#         if hasattr(obj, 'width') and hasattr(obj, 'length'):
-#             name = (obj.webotsName or obj.webotsType or "")
-#             if "SCENIC_ADHOC7" in name:
-#                 for i in range(4):
-#                     self.obj_dims.append((0.1, 0.1))
-#                 #print("Counted 4 table legs only")
-#             else:
-#                 self.obj_dims.append((float(obj.width), float(obj.length)))
-#                 #print(f"Subtracted full area for: {name}")
-            
-            
-#     def compute_total_tiles(self):
-#         room_area = self.room_width * self.room_length
-#         object_area = sum(width * length for width, length in self.obj_dims)
-#         cleanable_area = room_area - object_area
-
-#         tile_area = self.granularity ** 2
-#         total_tiles = int(cleanable_area / tile_area)
-#         self.total_spaces = total_tiles
-#         #print(f"Computed total cleanable tiles: {total_tiles}")
-                
-#     def get_coverage_metric(self):
-#         # Number of unique positions visited
-#         covered_count = len(self.covered_spaces)
-#         # Coverage ratio (fraction of total spaces covered)
-#         coverage_ratio = covered_count / self.total_spaces
-#         # Optionally: return both count and percentage
-#         return covered_count, coverage_ratio          
-
-
-#     def step(self): # action should be some low level control commands for the robot
-#         if not self.enable_sensors: 
-#                # print("Protections failed sensors were not initialized before calling") 
-#                # TODO more elegant fix here, sensor need to be adaquetly initialized before the simlation begins stepping
-#                 self.init_step()
-
-#         rot = np.array(self.supervisor_node.getField("rotation").getSFVec2f(), dtype=np.float32)
-
-#         self.total_steps += 1
-#         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
-#         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
-#         #if episode is under 10 input_val=2.6, else input_val=100- self.current_total_coverage_sum
-#         #self.current_total_coverage_sum max assuming 100% acorss 10 episodes is 10
-#         input_val = -0.26 * self.current_total_coverage_sum + 5.2
-#         if episodes < 9:
-#             input_val = 5.2
-#         else:
-#             input_val = -0.26 * self.current_total_coverage_sum + 5.2
-
-#         raw_lidar = np.array(self.LIDAR.getRangeImage(), dtype=np.float64)
-#         raw_lidar = np.nan_to_num(raw_lidar, nan=input_val, posinf=input_val, neginf=0.01)
-#         #max value is input_val, min value is 0.01
-#         raw_lidar = np.clip(raw_lidar, 0.01, input_val)
-
-#         #-----------------------------------------------------------------------
-#         # # #print episode
-#         # print(f"Episode number: {episodes}")
-#         # #print lidar values, not normalized
-#         #print(f"LIDAR values: {raw_lidar}") #print lidar values for debugging
-#         # #print sum of covered spaces last 10 episodes
-#         # print (f"sum of last 10 episodes {self.current_total_coverage_sum}")
-#         # print (f"input_val (max on lidar) {input_val:.5f}")
-#         # #print coverage percentage
-#         # print(f"Coverage percentage: {self.best_coverage[1] * 100:.2f}%")
-
-#         #------------------------------------------------------------------
-        
-#         #print(f"Sum of covered spaces last 10 episodes: {np.sum(self.last_10_episode_coverages)}") #print sum of covered spaces last 10 episodes
-#         #print(f"input_val used for nan and posinf: {input_val}")
-#         #raw_lidar = np.clip(raw_lidar, 0.2, self.objects[0].clip_range)  # ensure it stays in observation space bounds
-#         # raw_lidar = (raw_lidar - 0.2) / (self.objects[0].clip_range - 0.2) # change 2.6 to max range
-#         #print(f"LIDAR (min/avg/max): {np.min(raw_lidar):.5f}/{np.mean(raw_lidar):.5f}/{np.max(raw_lidar):.5f}")
-#         # Assemble observation
-#         self.observation = {
-#             "velocity": np.array([self.actions[0], self.actions[1]]),
-#             # "sensor": np.array([self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, # ensures that null values are not returned from unintialized sensors
-#             #     self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
-#             #                          self.sensor_actual_right.getValue()/800]),
-#             "position": np.array(pos),
-#             "lidar": raw_lidar,
-#             "rotation" : np.array([rot[0], rot[1], rot[2], rot[3]]),
-#             # "sectional_coverage": self.sectional_coverage / (self.total_spaces / 16),
-#             # "current_section": self.posToIdx(pos)
-#         }
-
-#         self.transform_vel()
-#         self.left_motor.setVelocity(self.actions[0]) 
-#         self.right_motor.setVelocity(self.actions[1])
-#         self.supervisor.step(self.ms)
-#         self.time_elapsed += self.timestep
-#         covered_count, coverage_ratio = self.get_coverage_metric()
-#         if coverage_ratio > self.best_coverage[1]:
-#             self.best_coverage = covered_count, coverage_ratio
-        
-#     def getObjects(self):
-#         for obj in self.objects:
-#             if "floor" in str(obj).lower() or "vacuum" in str(obj).lower():
-#                 continue
-#             x, y, z = obj.position
-#             yaw = obj.heading
-#             c, s = math.cos(yaw), math.sin(yaw)
-#             # 4×4 yaw+translate
-#             T = np.array([
-#                 [ c, -s, 0, x],
-#                 [ s,  c, 0, y],
-#                 [ 0,  0, 1, z],
-#                 [ 0,  0, 0, 1]
-#             ])
-#             base = obj.shape._mesh                     
-#             dims = (obj.width, obj.length, obj.height)  
-#             mesh = MeshVolumeRegion(mesh=base, dimensions=dims).mesh
-#             mesh_in_world = mesh.copy()
-#             mesh_in_world.apply_transform(T)
-#             self.prox_checks.append(ProximityQuery(mesh_in_world))
-#             self.spheres.append([obj.position] + [mesh_in_world.bounding_sphere.primitive.radius])
-
-#     def init_step(self):
-#         """
-#         Initialize all the sensors and devices on the robot
-#         """
-#         self.sensor_right.enable(self.ms)
-#         self.sensor_front_right.enable(self.ms)
-
-#         self.sensor_front_left.enable(self.ms)
-#         self.sensor_left.enable(self.ms)
-#         self.LIDAR.enable(self.ms)
-
-
-#         self.sensor_back.enable(self.ms)
-
-#         self.sensor_actual_left.enable(self.ms)
-#         self.sensor_actual_right.enable(self.ms)
-
-#         self.supervisor.step(self.ms) # Need to step the simulation once after initializing the sensors!
-#         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
-#         self.pos = pos # initialize the position
-#         self.enable_sensors = True
-#         self.getObjects()
-
-
-#     def getProperties(self, obj, properties):
-#         webotsObj = getattr(obj, "webotsObject", None)
-#         if not webotsObj:  # static object with no Webots counterpart
-#             return {prop: getattr(obj, prop) for prop in properties}
-
-#         pos = webotsObj.getField("translation").getSFVec3f()
-#         x, y, z = self.coordinateSystem.positionToScenic(pos)
-#         lx, ly, lz, ax, ay, az = webotsObj.getVelocity()
-#         vx, vy, vz = self.coordinateSystem.positionToScenic((lx, ly, lz))
-#         velocity = Vector(vx, vy, vz)
-#         speed = math.hypot(*velocity)
-#         angularSpeed = math.hypot(ax, ay, az)
-
-#         offsetOrientation = toOrientation(obj.rotationOffset)
-#         globalOrientation = self.coordinateSystem.orientationToScenic(
-#             webotsObj.getField("rotation").getSFRotation(), offsetOrientation
-#         )
-#         yaw, pitch, roll = obj.parentOrientation.localAnglesFor(globalOrientation)
-
-#         values = dict(
-#             position=Vector(x, y, z),
-#             velocity=velocity,
-#             speed=speed,
-#             angularSpeed=angularSpeed,
-#             angularVelocity=Vector(ax, ay, az),
-#             yaw=yaw,
-#             pitch=pitch,
-#             roll=roll,
-#             elevation=z,
-#         )
-
-#         if hasattr(obj, "battery"):
-#             field = webotsObj.getField("battery")
-#             val = (field.getMFFloat(0), obj.battery[1], obj.battery[2])
-#             values["battery"] = val
-
-#         return values
-    
-#     def metric(self):
-
-#         avg_reward = self.total_reward / self.total_steps if self.total_steps > 0 else 0
-#         exploration = len(self.covered_spaces)
-#         collision_rate = self.collisions / self.total_steps if self.total_steps > 0 else 0
-
-#         score = avg_reward - 10 * collision_rate + 0.1 * exploration
-
-#         return {
-#             "total_reward": self.total_reward,
-#             "average_reward": avg_reward,
-#             "steps": self.total_steps,
-#             "time_elapsed": self.time_elapsed,
-#             "collision_count": self.collisions,
-#             "exploration_score": exploration,
-#             "final_score": score
-#         }
-
-#     def destroy(self):
-#         global episodes
-#         episodes += 1
-#         print(f"Episode number: {episodes}")
-#         print(f"This is the metric: {self.metric()}")
-#         print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")
-#         # Destroy adhoc objects generated at the beginning of the simulation
-#         print(f" total episode reward was {self.total_reward}")
-#         input_val = -0.26 * self.current_total_coverage_sum + 5.2
-#         print (f"input_val (max on lidar) {input_val:.2f}")
-
-#         print(f"This is the metric: {self.metric()}")
-#         print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%) \n")
-
-#         for i in range(1, self.nextAdHocObjectId):
-#             name = self._getAdhocObjectName(i)
-#             node = self.supervisor.getFromDef(name)
-#             if node is not None: # ensure that the node actually exisits in the simulation before destroying it
-#                 node.remove()
-#             self.supervisor.step(self.ms) # TODO this fixe crashing error on repeated reset calls! I DO NOT KNOW WHY.... temp fix, need to figure out underlying cause
-#     def _getAdhocObjectName(self, i: int) -> str:
-#         return f"SCENIC_ADHOC_{i}"
-    
-#     def posToIdx(self, pos):
-#         idx = np.array([0, 0])
-#         for i in range(0, 2):
-#             if(pos[i] <= self.room_width / 4 * -1):
-#                 idx[i] = 0
-#             elif(pos[i] <= 0):
-#                 idx[i] = 1
-#             elif(pos[i] <= self.room_width / 4):
-#                 idx[i] = 2
-#             else:
-#                 idx[i] = 3
-#         return 4 * idx[0] + idx[1]
-        
-
-#     def get_coverage_reward(self, granularity, pos):
-#             reward = 0
-#             #important parameter
-#             radius = .335/2
-#             x_range = np.arange(pos[0] - radius - granularity, pos[0] + radius + granularity, granularity)
-#             y_range = np.arange(pos[1] - radius - granularity, pos[1] + radius + granularity, granularity)
-#             x_range_combined, y_range_combined = np.meshgrid(x_range, y_range, indexing="xy")
-#             mask = (x_range_combined - pos[0])**2 + (y_range_combined - pos[1])**2 <= radius**2
-#             circle_points = [
-#                 (
-#                     round(granularity * round(x / granularity), 3),
-#                     round(granularity * round(y / granularity), 3)
-#                 )
-#                 for x, y in np.vstack((x_range_combined[mask],
-#                                     y_range_combined[mask])).T
-#             ]
-#             for point in circle_points:
-#                 if(point not in self.covered_spaces):
-#                     reward += 1
-#                     self.covered_spaces.append(point)
-#                     self.sectional_coverage[self.posToIdx(pos)] += 1
-#             if reward == 0:
-#                 reward += -.001
-#             return reward
-#     # def checkCollisions(self):
-#     #     minDist = 0.01 # minimum distance to be considered a collision
-#     #     if np.any(self.observation["sensor"][:5] < 0.1):
-#     #         return True
-#     #     for i in range(1, len(self.objects)):
-#     #         obj = self.objects[i]
-#     #         if i < math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
-#     #             continue  
-#     #         if hasattr(obj, "floor"): # add a attribute for objs excluded in comp
-#     #             pass   
-#     #         elif (hasattr(obj, "occupiedSpace")): # safety check ensures that we dont try to access something nonexistent
-#     #             if( obj.occupiedSpace.intersects(self.objects[0].occupiedSpace)):
-#     #                 print("collided with object: " + str(obj))
-#     #                 return True
-#     #     return False
-#     def checkCollisions(self):
-#         minDist = 0.01
-#         for i in range(len(self.prox_checks)):
-#             if math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
-#                 continue    
-#             if(abs(self.prox_checks[i].signed_distance(np.array([self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]]))) < .335/2 + minDist):
-#                 return True
-#         return False
-
-#     def get_reward(self): # "any dummy for now will be okay"
-#         """
-#         Calculate the reward based off of the current state
-#         """
-#         step_info = {}
-#         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
-#         pos = tuple(pos.tolist())
-#         reward = self.get_coverage_reward(self.granularity, [pos[0], pos[1]])
-        
-#         if np.all(self.observation["velocity"] > 0):
-#             reward += .2 # small reward for driving forwa
-        
-#         if (self.checkCollisions()): # if any distance sensor is low penalize
-#             reward += -1
-#             self.collision_safeguard += 1
-#             self.collisions += 1
-#         else:
-#             self.collision_safeguard = 0
-#         if self.collision_safeguard >= 40 and not self.inter_penalty:
-#             reward += -1
-#             self.inter_penalty = True
-        
-#         if self.invalid_action:
-#             reward += -100
-#             print("Invalid action")
-#             self.invalid_action = False
-#         self.total_reward += reward
-#         return reward, step_info
-        
-#         if np.all(self.observation["velocity"] > 0):
-#             reward += .5 # small reward for driving forward
-
-#     def get_info(self):
-#         """
-#         Any information about the system/state that should be retained
-#         """
-#         return {}
-     
-#     def get_obs(self):
-#         """
-#         Return the current state of the enviroment
-#         """
-#         return self.observation
-    
-#     def transform_vel(self): 
-#         """
-#         Maps the actors actions from (-1,1) to the actual motor range
-#         of the robot system
-#         """
-#         self.actions[0] = self.actions[0] * self.velocity_ranges[1] 
-#         self.actions[1] = self.actions[1] * self.velocity_ranges[1]
-
-#         if np.any(np.abs(self.actions) > self.velocity_ranges[1]):
-#             #print("Error with velocity comp:")
-#             self.invalid_action = True
-#             #print(f"Actions: {self.actions[0], self.actions[1]}")
-#             self.actions[0] = 0
-#             self.actions[1] = 0 # set invalid action to 0 instead
-    
-#     def get_truncation(self):
-#         if self.collision_safeguard > 50:
-#             return True #make true to actually work
-#         else:
-#             return False
-
-# def getFieldSafe(webotsObject, fieldName):
-#     """Get field from webots object. Return null if no such field exists.
-
-#     Needed to workaround this issue (https://github.com/cyberbotics/webots/issues/5646)
-
-#     Args:
-#         webotsObject: webots object
-#         fieldName: name of the field to look for
-
-#     Returns:
-#         Field|None: Field object if the field with the given name exists. None otherwise.
-#     """
-
-#     field = webotsObject.getField(fieldName)
-#     # this seems to always return some object, but return None if field is None
-#     if field is None:
-#         return None
-
-#     # if field is valid, it has a valid pointer
-#     if isinstance(field._ref, ctypes.c_void_p) and field._ref.value is not None:
-#         # then the field is valid and we return the reference
-#         return field
-
-#     # if the pointer points to None, then the field does not exist on this object
-#     return None
-# #-
-
-# def isPhysicsEnabled(webotsObject):
-#     """Whether or not physics is enabled for this `WebotsObject`"""
-#     if webotsObject.webotsAdhoc is None:
-#         return webotsObject
-#     if isinstance(webotsObject.webotsAdhoc, dict):
-#         return webotsObject.webotsAdhoc.get("physics", True)
-#     raise TypeError(f"webotsAdhoc must be None or a dictionary")
+#     model.save("PPO_vacuum_agent_latest")
+
+#     gc.collect()
+
+#------------------------------------------------
+# model = PPO.load("Lidar_PPO_base_50_mod.zip", env=training_env)
+# print("Loaded model from file.")
+model.learn(total_timesteps)
+print("Training completed.")
+model.save("PPO_vacuum_agent_latest")
+del model
+del training_env
+gc.collect()
+
+print(f"\nTraining completed. Total timesteps trained: {total_timesteps}")
+
+print("\n--- Starting Evaluation ---")
+scenario_eval = scenic.scenarioFromFile(prefix + "examples/webots/vacuum/vacuum.scenic",
+                                 model="scenic.simulators.webots.model",
+                                 mode2D=False)
+
+eval_env = ScenicGymEnv(scenario_eval,
+                            simulator,
+                            render_mode=None,
+                            max_steps=max_steps,
+                            action_space=action_space,
+                            observation_space=observation_space
+                            )
+eval_env = Monitor(eval_env)
+
+final_model = PPO.load("PPO_vacuum_agent_latest")
+final_model.set_env(eval_env)
+
+mean_rwd, std_reward = evaluate_policy(final_model, eval_env, n_eval_episodes=15, render=False, deterministic=False)
+
+print(f"After evaluation mean reward was : {mean_rwd:.2f} with std: {std_reward:.2f}")
+
+episodic_rewards = eval_env.get_episode_rewards()
+print(f"Episodic Rewards (Evaluation): {episodic_rewards}")
+
+if len(episodic_rewards) > 1:
+    total_pc = 0
+    for j in range(1, len(episodic_rewards)):
+        if np.abs(episodic_rewards[j - 1]) > 1e-6:
+            total_pc += (episodic_rewards[j] - episodic_rewards[j - 1]) / np.abs(episodic_rewards[j - 1])
+    print(f"Average normalized percent difference: {total_pc / (len(episodic_rewards) - 1):.4f}")
+else:
+    print("Not enough episodes for average normalized percent difference calculation.")
+
+fig, ax = plt.subplots()
+ax.stem(range(len(episodic_rewards)), episodic_rewards)
+plt.title(f"Episodic Rewards During Evaluation (Total Timesteps: {total_timesteps})")
+plt.xlabel("Episode Number")
+plt.ylabel("Total Reward")
+file_name = f"PPO_policy_{total_timesteps}.png"
+plt.savefig(file_name, format='png')
+plt.show()
+
+end = time.time()
+print(f"Total script execution time: {(end - start) / 60:.2f} minutes")

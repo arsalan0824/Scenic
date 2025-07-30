@@ -62,7 +62,7 @@ from collections import deque
 # gae_cb = GAECallback()
 
 def adjust_clip_range(current_total_coverage_sum: float) -> float:
-    input_val = -0.26 * current_total_coverage_sum + 5.2
+    input_val = -0.03 * current_total_coverage_sum + 1
     return input_val
 
 start = time.time()
@@ -90,17 +90,14 @@ observation_space = gym.spaces.Dict({
     # "current_section": gym.spaces.Box(low=np.array([0]), high=np.array([15]), shape=(1,),dtype=int)
 })
 max_steps = 10000
-env = ScenicGymEnv(scenario, 
-                   simulator, 
-                   render_mode=None, 
-                   max_steps=max_steps,  
-                   action_space=action_space,
-                   observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
-env = Monitor(env)
 
-episodes= 21
-total_timesteps = max_steps * episodes
-print(total_timesteps)
+iterations = 50
+timesteps_per_itr = max_steps * 1
+
+scenario_template = scenic.scenarioFromFile(prefix + "examples/webots/vacuum/vacuum.scenic",
+                                 model="scenic.simulators.webots.model",
+                                 mode2D=False)
+print("Scenario template loaded.")
 
 training_env_unwrapped = ScenicGymEnv(scenario_template,
                    simulator,
@@ -110,26 +107,33 @@ training_env_unwrapped = ScenicGymEnv(scenario_template,
                    observation_space=observation_space,
                    feedback_fn=adjust_clip_range
                    )
+print("Training environment created.")
 training_env = Monitor(training_env_unwrapped)
 
-model = PPO("MultiInputPolicy", env, verbose=2, learning_rate=0.0002,ent_coef=0.05)
-# Create an instance of an agent 
-model.set_parameters("baseline.zip") # Load the parameters of a previously trained agent
-# model.learn(total_timesteps=total_timesteps)          # train the agent over a set number of steps
-#model.save("7_21 - 50 + 50 VerifAI")               # Save the model after training
-
-#mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False, deterministic=False)
-#print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
-for i in range(iterations):
-    print(f"\n--- Training Progress: Iteration {i+1}/{iterations} ---")
-
-    model.learn(total_timesteps=timesteps_per_itr)
-    
-    model.save("PPO_vacuum_agent_latest")
-
-    gc.collect()
-
 total_timesteps = iterations * timesteps_per_itr
+
+model = PPO("MultiInputPolicy", training_env, verbose=2, learning_rate=0.0002)
+
+
+# for i in range(iterations):
+#     print(f"\n--- Training Progress: Iteration {i+1}/{iterations} ---")
+
+#     model.learn(total_timesteps=timesteps_per_itr)
+    
+#     model.save("PPO_vacuum_agent_latest")
+
+#     gc.collect()
+
+#------------------------------------------------
+# model = PPO.load("Lidar_PPO_base_50_mod.zip", env=training_env)
+# print("Loaded model from file.")
+model.learn(total_timesteps)
+print("Training completed.")
+model.save("PPO_vacuum_agent_latest")
+del model
+del training_env
+gc.collect()
+
 print(f"\nTraining completed. Total timesteps trained: {total_timesteps}")
 
 print("\n--- Starting Evaluation ---")
@@ -146,21 +150,16 @@ eval_env = ScenicGymEnv(scenario_eval,
                             )
 eval_env = Monitor(eval_env)
 
-final_model = PPO.load("Lidar_PPO_base_50_mod.zip")
+final_model = PPO.load("PPO_vacuum_agent_latest")
 final_model.set_env(eval_env)
 
-mean_rwd, std_reward = evaluate_policy(final_model, eval_env, n_eval_episodes=50, render=False, deterministic=False)
+mean_rwd, std_reward = evaluate_policy(final_model, eval_env, n_eval_episodes=15, render=False, deterministic=False)
 
 print(f"After evaluation mean reward was : {mean_rwd:.2f} with std: {std_reward:.2f}")
 
 episodic_rewards = eval_env.get_episode_rewards()
 print(f"Episodic Rewards (Evaluation): {episodic_rewards}")
 
-env.env.logScores()
-
-episodic_rewards = env.get_episode_rewards()
-print(episodic_rewards)
-total_pc = 0
 if(len(episodic_rewards) >= 2):
     for i in range(1, len(episodic_rewards)):
         total_pc += (episodic_rewards[i] - episodic_rewards[i - 1]) / np.abs(episodic_rewards[i - 1])
