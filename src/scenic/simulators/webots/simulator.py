@@ -603,7 +603,7 @@ class WebotsSimulation(Simulation):
             reward += .2 # small reward for driving forwa
         
         if (self.checkCollisions()): # if any distance sensor is low penalize
-            reward += -100
+            reward += -1
             self.collision_safeguard += 1
             self.collisions += 1
         else:
@@ -621,9 +621,6 @@ class WebotsSimulation(Simulation):
         if np.all(self.observation["velocity"] > 0):
             reward += .5 # small reward for driving forward
         
-        min_lidar = min(self.observation["lidar"])
-        if (min_lidar < 0.4):
-            reward += -1
 
     def get_info(self):
         """
