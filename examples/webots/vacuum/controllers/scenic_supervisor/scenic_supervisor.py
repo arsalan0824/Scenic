@@ -28,8 +28,8 @@ import gc
 from collections import deque
 
 def adjust_clip_range(current_total_coverage_sum: float) -> float:
-    # input_val = -0.26 * current_total_coverage_sum + 5.2
-    input_val = -0.03 * current_total_coverage_sum + 1
+    input_val = -0.26 * current_total_coverage_sum + 5.2
+    # input_val = -0.03 * current_total_coverage_sum + 1
     return input_val
 
 start = time.time()
@@ -43,9 +43,11 @@ action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))
 observation_space = gym.spaces.Dict({
     "velocity": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
     "position": gym.spaces.Box(low=np.array([-2.6, -2.6]), high=np.array([2.6, 2.6]), shape=(2,),dtype=np.float64),
-    "lidar": gym.spaces.Box(low=0.25, high=1, shape=(32,), dtype=np.float64),
+    "lidar": gym.spaces.Box(low=0.25, high=5.2, shape=(32,), dtype=np.float64),
     "rotation": gym.spaces.Box(low=np.array([-1,-1,-1,-1]), high=np.array([1,1,1,1]), shape=(4,), dtype=np.float64)
 })
+
+
 print("Action and observation spaces defined.")
 max_steps = 10000
 

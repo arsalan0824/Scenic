@@ -346,14 +346,14 @@ class WebotsSimulation(Simulation):
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
         #if episode is under 10 input_val=2.6, else input_val=100- self.current_total_coverage_sum
         #self.current_total_coverage_sum max assuming 100% acorss 10 episodes is 10
-        # input_val = -0.26 * self.current_total_coverage_sum + 5.2
-        input_val = -0.03 * self.current_total_coverage_sum + 1
+        input_val = -0.26 * self.current_total_coverage_sum + 5.2
+        # input_val = -0.03 * self.current_total_coverage_sum + 1
         if self.current_total_coverage_sum < 5:
-            # input_val = 5.2
-            input_val = 1
+            input_val = 5.2
+            # input_val = 1
         else:
-            # input_val = -0.26 * self.current_total_coverage_sum + 5.2
-            input_val = -0.03 * self.current_total_coverage_sum + 1
+            input_val = -0.26 * self.current_total_coverage_sum + 5.2
+            # input_val = -0.03 * self.current_total_coverage_sum + 1
 
 
         raw_lidar = np.array(self.LIDAR.getRangeImage(), dtype=np.float64)
@@ -371,7 +371,7 @@ class WebotsSimulation(Simulation):
         # print (f"input_val (max on lidar) {input_val:.5f}")
         # #print coverage percentage
         # print(f"Coverage percentage: {self.best_coverage[1] * 100:.2f}%")
-        min_lidar = min(self.observation["lidar"])
+        # min_lidar = min(self.observation["lidar"])
         # print(min_lidar)
         # if (min_lidar < 0.4):
         #     # print ("smt too close to lidar")

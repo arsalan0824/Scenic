@@ -583,7 +583,7 @@ Robot {
       rotation 0 0 1 0
       name "LIDAR"
       fieldOfView  6.28
-      maxRange 1
+      maxRange 5.2
       minRange 0.25
       horizontalResolution 32
       numberOfLayers       1
