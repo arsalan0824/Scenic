@@ -1,140 +1,269 @@
-# import sys
-# import os
-
-# try:
-#     current_script_dir = os.path.dirname(os.path.abspath(__file__))
-#     scenic_src_path = os.path.normpath(os.path.join(current_script_dir, '..', '..', '..', '..', 'src'))
-#     if scenic_src_path not in sys.path:
-#         sys.path.insert(0, scenic_src_path)
-# except Exception as e:
-#     print(f"Warning: Could not add Scenic src to path. Error: {e}")
-
-# from scenic.gym import ScenicGymEnv
-# import scenic
-# from scenic.simulators.webots import WebotsSimulator
-
+# from scenic.core.simulators import Simulator, Simulation, TerminationType
+# from scenic.core.scenarios import Scenario
+# from scenic.core.errors import setDebuggingOptions
 # import gymnasium as gym
+# from gymnasium import spaces
+# from typing import Callable
+
+# import random
 # import numpy as np
 
-# from controller import Supervisor
+# import pandas as pd
 
-# from stable_baselines3 import PPO
-# from stable_baselines3.common.monitor import Monitor
-# from stable_baselines3.common.evaluation import evaluate_policy
-# #-
-# import matplotlib.pyplot as plt
-# import time
-# import gc
-# from collections import deque
+# setDebuggingOptions(verbosity=2)
 
-# def adjust_clip_range(current_total_coverage_sum: float) -> float:
-#     # input_val = -0.26 * current_total_coverage_sum + 5.2
-#     input_val = -0.03 * current_total_coverage_sum + 1
-#     return input_val
+# #TODO make ResetException
 
-# start = time.time()
+# file_path = "../../../../../output.csv"
+# point_file_path = "../../../../../points.csv"
 
-# supervisor = Supervisor()
-# simulator = WebotsSimulator(supervisor)
-# print("Webots simulator initialized.")
-# prefix = scenic.__file__[:-22]
-
-# action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))
-# observation_space = gym.spaces.Dict({
-#     "velocity": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
-#     "position": gym.spaces.Box(low=np.array([-2.6, -2.6]), high=np.array([2.6, 2.6]), shape=(2,),dtype=np.float64),
-#     "lidar": gym.spaces.Box(low=0.25, high=1, shape=(32,), dtype=np.float64),
-#     "rotation": gym.spaces.Box(low=np.array([-1,-1,-1,-1]), high=np.array([1,1,1,1]), shape=(4,), dtype=np.float64)
-# })
-# print("Action and observation spaces defined.")
-# max_steps = 10000
-
-# iterations = 50
-# timesteps_per_itr = max_steps * 1
-
-# scenario_template = scenic.scenarioFromFile(prefix + "examples/webots/vacuum/vacuum.scenic",
-#                                  model="scenic.simulators.webots.model",
-#                                  mode2D=False)
-# print("Scenario template loaded.")
-
-# training_env_unwrapped = ScenicGymEnv(scenario_template,
-#                    simulator,
-#                    render_mode=None,
-#                    max_steps=max_steps,
-#                    action_space=action_space,
-#                    observation_space=observation_space,
-#                    feedback_fn=adjust_clip_range
-#                    )
-# print("Training environment created.")
-# training_env = Monitor(training_env_unwrapped)
-
-# total_timesteps = iterations * timesteps_per_itr
-
-# model = PPO("MultiInputPolicy", training_env, verbose=2, learning_rate=0.0002)
-
-
-# # for i in range(iterations):
-# #     print(f"\n--- Training Progress: Iteration {i+1}/{iterations} ---")
-
-# #     model.learn(total_timesteps=timesteps_per_itr)
+# def write_csv(name, coverage, collisions, rewards):
+#     rows = [[f"coverage_{name}"] + list(coverage),
+#             [f"collisions_{name}"] + list(collisions),
+#             [f"rewards_{name}"] + list(rewards)
+#             ]
+#     df = pd.DataFrame(rows)
+#     df.to_csv(file_path, index=False, mode='a', header=False)
     
-# #     model.save("PPO_vacuum_agent_latest")
+# def write_point_records(name, timewise_points):
+#     rows = [[f"{name}"] + list(timewise_points)]
+#     df = pd.DataFrame(rows)
+#     df.to_csv(point_file_path, index=False, mode='a',header=False)
+# class ResetException(Exception):
+#     def __init__(self):
+#         super().__init__("Resetting")
 
-# #     gc.collect()
+# class ScenicGymEnv(gym.Env):
+#     """
+#     verifai_sampler now not an argument added in here, but one specified int he Scenic program
+#     """
+#     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4} # TODO placeholder, add simulator-specific entries
+    
+#     def __init__(self, 
+#                  scenario : Scenario,
+#                  simulator : Simulator,
+#                  render_mode=None, 
+#                  max_steps = 1000,
+#                  observation_space : spaces.Dict = spaces.Dict(),
+#                  action_space : spaces.Dict = spaces.Dict(),
+#                  record_scenic_sim_results : bool = True,
+#                  feedback_fn : callable = lambda x: x): # empty string means just pure scenic???
 
-# #------------------------------------------------
-# # model = PPO.load("Lidar_PPO_base_50_mod.zip", env=training_env)
-# # print("Loaded model from file.")
-# model.learn(total_timesteps)
-# print("Training completed.")
-# model.save("PPO_vacuum_agent_latest")
-# del model
-# del training_env
-# gc.collect()
+#         assert render_mode is None or render_mode in self.metadata["render_modes"]
 
-# print(f"\nTraining completed. Total timesteps trained: {total_timesteps}")
+#         self.observation_space = observation_space
+#         self.action_space = action_space
+#         self.render_mode = render_mode
+#         self.max_steps = max_steps - 1 # FIXME, what was this about again?
+#         self.simulator = simulator
+#         self.scenario = scenario
+#         self.simulation_results = []
 
-# print("\n--- Starting Evaluation ---")
-# scenario_eval = scenic.scenarioFromFile(prefix + "examples/webots/vacuum/vacuum.scenic",
-#                                  model="scenic.simulators.webots.model",
-#                                  mode2D=False)
+#         self.feedback_result = None
+#         self.loop = None
+#         self.record_scenic_sim_results = record_scenic_sim_results
+#         self.feedback_fn = feedback_fn
+        
+#         #CHANGEABLE STUFF, CHECK BEFORE EACH RUN ALSO CHECK THAT THE BUFFER IS EMPTY
+#         self.training_method = "Random"
+#         self.use_plr = False
+#         self.use_verifai = False
+#         self.buffer_p = 0.5 # probability of resampling
+#         #Random: default
+#         #LP: Prioritized level replay based off learning potential
+#         #EL: episode length, probability distribution based off inverse of episode length, need termination
+        
+#         #changeable stuff for saving data to csv
+#         self.save_to_csv = True # whether to save data to csv
+#         self.record_points = True
+#         self.run_name = "7_29 - F50, ent(.025)" # name of the run, used for saving data to csv
+#         self.total_steps = 10000*50 # total number of timesteps to run, used for saving data to csv
+    
+        
+#         #load arrays
+#         self.resampling_weights =  np.array([]) # resamling weights of scenes in the buffer
+#         self.buffer_last_reward = np.array([]) # last reward of the scenes in the buffer(for lp)
+        
+#         #extra variables for the run loop
+#         self.working_index = -1
+#         self.flag = 0
+#         self.counting_reward = 0
+#         self.steps_taken = 0
+#         self.total_steps_taken = 0
+        
+#         if self.use_plr and self.training_method not in ("EL", "LP"):
+#             raise ValueError(
+#                 f"use_plr=True but training_method={self.training_method!r}. "
+#                 "Must be one of 'LP' or 'EL' if use_plr is enabled."
+#             )
+        
+#         #information recording
+#         self.episode_coverages = []  
+#         self.episode_collisions = []  
+#         self.episode_rewards = []
+#         self.timewise_points = None
 
-# eval_env = ScenicGymEnv(scenario_eval,
-#                             simulator,
-#                             render_mode=None,
-#                             max_steps=max_steps,
-#                             action_space=action_space,
-#                             observation_space=observation_space
-#                             )
-# eval_env = Monitor(eval_env)
+#     def _make_run_loop(self):
+#         while True:
+#             try:
+#                 scene = None
+#                 self.is_resampling = random.uniform(0, 1) < self.buffer_p
+#                 #sample or resample scenes
+#                 if not self.use_plr:
+#                     scene, _ = self.scenario.generate(feedback=self.feedback_result)
+#                 elif self.training_method == "LP" and len(self.resampling_weights) != len(self.buffer_last_reward):
+#                     # resample scene
+#                     self.flag = 0
+#                     self.working_index = len(self.buffer_last_reward) - 1
+#                     with open(f"../../../../../../buffer/scene_{self.working_index}.bin", "rb") as f:
+#                         scene = self.scenario.sceneFromBytes(f.read())
+#                     print("Double sampling")
+#                 elif self.use_plr and self.is_resampling and len(self.resampling_weights) > 0:
+#                     # resample from buffer
+#                     self.flag = 1
+#                     prob_distribution = self.resampling_weights / np.sum(self.resampling_weights)
+#                     self.working_index = np.random.choice(len(self.resampling_weights), p=prob_distribution)
+#                     with open(f"../../../../../../buffer/scene_{self.working_index}.bin", "rb") as f:
+#                         scene = self.scenario.sceneFromBytes(f.read())
+#                     print(f"Resampling from buffer with index {self.working_index}")
+#                 else:
+#                     # sample new scene
+#                     self.flag = 2
+#                     scene, _ = self.scenario.generate(feedback=self.feedback_result)
+#                     with open(f"../../../../../../buffer/scene_{len(self.resampling_weights)}.bin", "wb") as f:
+#                         f.write(self.scenario.sceneToBytes(scene=scene))
+#                     self.working_index = len(self.resampling_weights)
+#                     print(f"Sampling new scene with index {self.working_index}")
+                
+#                 self.counting_reward = 0
+#                 with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
+#                     self.steps_taken = 0
+#                     # this first block before the while loop is for the first reset call
+#                     done = lambda: not (simulation.result is None) or (simulation.get_truncation()) # allows for early truncation
+#                     truncated = lambda: (self.steps_taken >= self.max_steps)  # TODO handle cases where it is done right on maxsteps
+#                     observation = simulation.get_obs()
+#                     info = simulation.get_info() 
+#                     actions = yield observation, info
+#                     simulation.actions = actions # TODO add action dict to simulation interfaces
+#                     while not done():
+#                         # Probably good that we advance first before any action is set.
+#                         # this is consistent with how reset works
+#                         simulation.advance()
+#                         self.steps_taken += 1
+#                         self.total_steps_taken += 1
+#                         observation = simulation.get_obs()
+#                         info = simulation.get_info()
+#                         reward = simulation.get_reward()
+#                         self.counting_reward += reward
+#                         if simulation.covered_spaces != None and simulation.coverage_timesteps != None:
+#                             self.timewise_points = list(zip(simulation.coverage_timesteps, simulation.covered_spaces))
+#                         if done():
+#                             if simulation.result is None:
+#                                 simulation.terminateSimulation(TerminationType.terminatedByUser, "early truncation")
+#                             print("Simulation done")
+#                             if self.record_points:
+#                                 write_point_records(f"{self.run_name}_{len(self.episode_coverages)}", self.timewise_points)
+#                             self.logScores()
+#                             if not self.use_verifai:
+#                                 self.feedback_result = self.feedback_fn(simulation.result)
+#                             if self.record_scenic_sim_results:
+#                                 self.simulation_results.append(simulation.result)
+#                             # simulation.destroy() # FIXME...might redundant?
+#                             actions = yield observation, reward, done(), truncated(), info
+                            
+#                             break # a little unclean right here
 
-# final_model = PPO.load("PPO_vacuum_agent_latest")
-# final_model.set_env(eval_env)
+#                         actions = yield observation, reward, done(), done(), info
+#                         simulation.actions = actions # TODO add action dict to simulation interfaces
+#                     print("Exitedwhile loop")
+#             except ResetException:
+#                 if self.total_steps_taken >= self.total_steps and self.save_to_csv:
+#                     write_csv(self.run_name, self.episode_coverages, self.episode_collisions, self.episode_rewards)
+#                 print("reset exception caught")
+#                 print(f"Episode coverages: {self.episode_coverages}")
+#                 print(f"Mean and std of coverages: {np.mean(self.episode_coverages)} and {np.std(self.episode_coverages)}")
+#                 print(f"Episode collisions: {self.episode_collisions}")
+#                 print(f"Mean and std of collisions: {np.mean(self.episode_collisions)} and {np.std(self.episode_collisions)}")
+#                 print(f"Excel splittable: {np.mean(self.episode_coverages)},{np.std(self.episode_coverages)},{np.mean(self.episode_collisions)},{np.std(self.episode_collisions)}")
+#                 continue
 
-# mean_rwd, std_reward = evaluate_policy(final_model, eval_env, n_eval_episodes=15, render=False, deterministic=False)
+#     def reset(self, seed=None, options=None): # TODO will setting seed here conflict with VerifAI's setting of seed?
+#         # only setting enviornment seed, not torch seed?
+#         super().reset(seed=seed)
+#         if self.loop is None:
+#             print("self loop doesnt exist, creating new one")
+#             self.loop = self._make_run_loop()
+#             observation, info = next(self.loop) # not doing self.scene.send(action) just yet
+#         else:
+#             observation, info = self.loop.throw(ResetException())
 
-# print(f"After evaluation mean reward was : {mean_rwd:.2f} with std: {std_reward:.2f}")
 
-# episodic_rewards = eval_env.get_episode_rewards()
-# print(f"Episodic Rewards (Evaluation): {episodic_rewards}")
+#         return observation, info
+        
+#     def step(self, action):
+#         assert not (self.loop is None), "self.loop is None, have you called reset()?"
 
-# if len(episodic_rewards) > 1:
-#     total_pc = 0
-#     for j in range(1, len(episodic_rewards)):
-#         if np.abs(episodic_rewards[j - 1]) > 1e-6:
-#             total_pc += (episodic_rewards[j] - episodic_rewards[j - 1]) / np.abs(episodic_rewards[j - 1])
-#     print(f"Average normalized percent difference: {total_pc / (len(episodic_rewards) - 1):.4f}")
-# else:
-#     print("Not enough episodes for average normalized percent difference calculation.")
+#         observation, reward, terminated, truncated, info = self.loop.send(action)
+        
+#         if terminated or truncated:
+#             self.episode_coverages.append(info.get("coverage", 0))
+#             self.episode_collisions.append(info.get("collisions", 0))
+#             self.episode_rewards.append(self.counting_reward)
+        
+#         return observation, reward, terminated, truncated, info
+    
+#     def get_coverage(self):
+#         return sum(self.episode_coverages) / len(self.episode_coverages) if self.episode_coverages else 0 
 
-# fig, ax = plt.subplots()
-# ax.stem(range(len(episodic_rewards)), episodic_rewards)
-# plt.title(f"Episodic Rewards During Evaluation (Total Timesteps: {total_timesteps})")
-# plt.xlabel("Episode Number")
-# plt.ylabel("Total Reward")
-# file_name = f"PPO_policy_{total_timesteps}.png"
-# plt.savefig(file_name, format='png')
-# plt.show()
+#     def render(self): # TODO figure out if this function has to be implemented here or if super() has default implementation
+#         """
+#         likely just going to be something like simulation.render() or something
+#         """
+#         # FIXME for one project only...also a bit hacky...
+#         # self.env.render()
+#         pass
 
-# end = time.time()
-# print(f"Total script execution time: {(end - start) / 60:.2f} minutes")
+#     def close(self):
+#         self.simulator.destroy()
+        
+#     def logScores(self):
+#         if self.training_method == "Random":
+#             return
+#         total_reward = self.counting_reward
+#         if(total_reward == 0):
+#             print("TOTAL REWRAD is 0! suspiciosu!")
+#         #log rewards and learning potential
+#         if self.flag == 0:
+#             #double sampling, so we know we are using LP
+#             if(self.working_index >= len(self.buffer_last_reward)):
+#                 print(f"Warning: working index {self.working_index} is out of bounds for buffer_last_reward with length {len(self.buffer_last_reward)}")
+#             else:
+#                 lp = abs(total_reward - self.buffer_last_reward[self.working_index]) + 1e-8
+#                 if self.use_verifai:
+#                     self.feedback_result = -lp
+#                 self.resampling_weights = np.append(self.resampling_weights, lp)
+#                 self.buffer_last_reward[self.working_index] = total_reward
+#                 print("finished double sampling")
+#         elif self.flag == 1:
+#             #resampling
+#             if self.training_method == "LP":
+#                 lp = abs(total_reward - self.buffer_last_reward[self.working_index]) + 1e-8
+#                 if self.use_verifai:
+#                     self.feedback_result = -lp
+#                 self.resampling_weights[self.working_index] = lp
+#                 self.buffer_last_reward[self.working_index] = total_reward
+#             elif self.training_method == "EL":
+#                 inverse_reward = 1 / (self.steps_taken + 100)
+#                 if(self.steps_taken <= 50):
+#                     inverse_reward = 0
+#                 self.resampling_weights[self.working_index] = inverse_reward
+#             else:
+#                 print("BIG ISSUE, resmaled but not special PLR")
+#         else:
+#             if self.training_method == "LP":
+#                 self.buffer_last_reward = np.append(self.buffer_last_reward, total_reward)
+#             elif self.training_method == "EL":
+#                 inverse_reward = 1 / (self.steps_taken + 100)
+#                 if(self.steps_taken <= 50):
+#                     inverse_reward = 0
+#                 self.resampling_weights = np.append(self.resampling_weights, inverse_reward)

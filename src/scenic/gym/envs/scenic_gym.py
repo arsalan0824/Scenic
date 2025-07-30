@@ -1,20 +1,21 @@
 from scenic.core.simulators import Simulator, Simulation, TerminationType
-from scenic.core.scenarios import Scenario
 from scenic.core.errors import setDebuggingOptions
+from scenic.core.simulators import Simulator, Simulation
+from scenic.core.scenarios import Scenario
 import gymnasium as gym
 from gymnasium import spaces
 from typing import Callable
-from collections import deque
 import random
-import numpy as np
-
 import pandas as pd
+from collections import deque
+import numpy as np
 
 setDebuggingOptions(verbosity=2)
 
 #TODO make ResetException
 
 file_path = "../../../../../output.csv"
+point_file_path = "../../../../../points.csv"
 
 def write_csv(name, coverage, collisions, rewards):
     rows = [[f"coverage_{name}"] + list(coverage),
@@ -29,32 +30,32 @@ def write_point_records(name, timewise_points):
     df = pd.DataFrame(rows)
     df.to_csv(point_file_path, index=False, mode='a',header=False)
 
+# Custom exception class
 class ResetException(Exception):
     def __init__(self):
         super().__init__("Resetting")
 
 class ScenicGymEnv(gym.Env):
-    """
-    verifai_sampler now not an argument added in here, but one specified int he Scenic program
-    """
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4} # TODO placeholder, add simulator-specific entries
-    
-    def __init__(self, 
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
+
+    def __init__(self,
                  scenario : Scenario,
                  simulator : Simulator,
-                 render_mode=None, 
+                 render_mode=None,
                  max_steps = 1000,
                  observation_space : spaces.Dict = spaces.Dict(),
                  action_space : spaces.Dict = spaces.Dict(),
                  record_scenic_sim_results : bool = True,
-                 feedback_fn : callable = lambda x: x): # empty string means just pure scenic???
+                 feedback_fn : Callable = lambda x: x):
+
+        super().__init__()
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
 
         self.observation_space = observation_space
         self.action_space = action_space
         self.render_mode = render_mode
-        self.max_steps = max_steps - 1 # FIXME, what was this about again?
+        self.max_steps = max_steps - 1
         self.simulator = simulator
         self.scenario = scenario
         self.simulation_results = []
@@ -63,22 +64,18 @@ class ScenicGymEnv(gym.Env):
         self.loop = None
         self.record_scenic_sim_results = record_scenic_sim_results
         self.feedback_fn = feedback_fn
-        
-        #CHANGEABLE STUFF, CHECK BEFORE EACH RUN ALSO CHECK THAT THE BUFFER IS EMPTY
+
         self.training_method = "Random"
         self.use_plr = False
         self.use_verifai = False
         self.buffer_p = 0.5 # probability of resampling
-        #Random: default
-        #LP: Prioritized level replay based off learning potential
-        #EL: episode length, probability distribution based off inverse of episode length, need termination
-        
-        #changeable stuff for saving data to csv
+
+
         self.save_to_csv = True # whether to save data to csv
-        self.run_name = "default_run" # name of the run, used for saving data to csv
-        self.total_episodes = 10 # total number of episodes to run, used for saving data to csv
-        
-        #load arrays
+        self.record_points = True
+        self.run_name = "7_29 - F50, ent(.025)" # name of the run, used for saving data to csv
+        self.total_steps = 10000*50 # total number of timesteps to run, used for saving data to csv
+
         self.resampling_weights =  np.array([]) # resamling weights of scenes in the buffer
         self.buffer_last_reward = np.array([]) # last reward of the scenes in the buffer(for lp)
         
@@ -87,16 +84,8 @@ class ScenicGymEnv(gym.Env):
         self.flag = 0
         self.counting_reward = 0
         self.steps_taken = 0
-
-
-        self.save_to_csv = True # whether to save data to csv
-        self.record_points = True
-        self.run_name = "7_29 - F50, ent(.025)" # name of the run, used for saving data to csv
-        self.total_steps = 10000*50 # total number of timesteps to run, used for saving data to csv
-        self.current_total_coverage_sum = 0
-
-
-
+        self.total_steps_taken = 0
+    
         if self.use_plr and self.training_method not in ("EL", "LP"):
             raise ValueError(
                 f"use_plr=True but training_method={self.training_method!r}. "
@@ -106,14 +95,55 @@ class ScenicGymEnv(gym.Env):
         #information recording
         self.episode_coverages = []  
         self.episode_collisions = []  
+        self.episode_rewards = []
+        self.timewise_points = None
 
-    def _make_run_loop(self):
+        self.last_10_episode_coverages = deque(maxlen=10)
+        self.total_episodes_completed = 0
+        self.current_total_coverage_sum = 0
+
+    def _make_run_loop(self): 
         while True:
             try:
                 scene = None
                 self.is_resampling = random.uniform(0, 1) < self.buffer_p
                 #sample or resample scenes
+                if not self.use_plr:
+                    scene, _ = self.scenario.generate(feedback=self.feedback_result)
+                elif self.training_method == "LP" and len(self.resampling_weights) != len(self.buffer_last_reward):
+                    # resample scene
+                    self.flag = 0
+                    self.working_index = len(self.buffer_last_reward) - 1
+                    with open(f"../../../../../../buffer/scene_{self.working_index}.bin", "rb") as f:
+                        scene = self.scenario.sceneFromBytes(f.read())
+                    print("Double sampling")
+                elif self.use_plr and self.is_resampling and len(self.resampling_weights) > 0:
+                    # resample from buffer
+                    self.flag = 1
+                    prob_distribution = self.resampling_weights / np.sum(self.resampling_weights)
+                    self.working_index = np.random.choice(len(self.resampling_weights), p=prob_distribution)
+                    with open(f"../../../../../../buffer/scene_{self.working_index}.bin", "rb") as f:
+                        scene = self.scenario.sceneFromBytes(f.read())
+                    print(f"Resampling from buffer with index {self.working_index}")
+                else:
+                    # sample new scene
+                    self.flag = 2
+                    scene, _ = self.scenario.generate(feedback=self.feedback_result)
+                    with open(f"../../../../../../buffer/scene_{len(self.resampling_weights)}.bin", "wb") as f:
+                        f.write(self.scenario.sceneToBytes(scene=scene))
+                    self.working_index = len(self.resampling_weights)
+                    print(f"Sampling new scene with index {self.working_index}")
+                
+                self.counting_reward = 0
+
+#---------------------------------------------
+
+                scene, _ = self.scenario.generate(feedback=self.feedback_result)
+                #make a variable so self.current_total_coverage_sum is accessible in simulator.py
+                
                 with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
+                    self.steps_taken = 0
+
                     simulation.current_total_coverage_sum = self.current_total_coverage_sum
                     steps_taken = 0
                     done_episode = lambda: not (simulation.result is None) or (simulation.get_truncation())
@@ -122,6 +152,7 @@ class ScenicGymEnv(gym.Env):
                     observation = simulation.get_obs()
                     initial_info = {}
                     actions = yield observation, initial_info
+                    simulation.actions = actions # TODO add action dict to simulation interfaces
 
                     while not done_episode():
                         simulation.actions = actions
@@ -168,68 +199,7 @@ class ScenicGymEnv(gym.Env):
                             break
 
                         actions = yield observation, reward, done_episode(), truncated_episode(), current_info
-                if not self.use_plr:
-                    scene, _ = self.scenario.generate(feedback=self.feedback_result)
-                elif self.training_method == "LP" and len(self.resampling_weights) != len(self.buffer_last_reward):
-                    # resample scene
-                    self.flag = 0
-                    self.working_index = len(self.buffer_last_reward) - 1
-                    with open(f"../../../../../../buffer/scene_{self.working_index}.bin", "rb") as f:
-                        scene = self.scenario.sceneFromBytes(f.read())
-                    print("Double sampling")
-                elif self.use_plr and self.is_resampling and len(self.resampling_weights) > 0:
-                    # resample from buffer
-                    self.flag = 1
-                    prob_distribution = self.resampling_weights / np.sum(self.resampling_weights)
-                    self.working_index = np.random.choice(len(self.resampling_weights), p=prob_distribution)
-                    with open(f"../../../../../../buffer/scene_{self.working_index}.bin", "rb") as f:
-                        scene = self.scenario.sceneFromBytes(f.read())
-                    print(f"Resampling from buffer with index {self.working_index}")
-                else:
-                    # sample new scene
-                    self.flag = 2
-                    scene, _ = self.scenario.generate(feedback=self.feedback_result)
-                    with open(f"../../../../../../buffer/scene_{len(self.resampling_weights)}.bin", "wb") as f:
-                        f.write(self.scenario.sceneToBytes(scene=scene))
-                    self.working_index = len(self.resampling_weights)
-                    print(f"Sampling new scene with index {self.working_index}")
-                
-                self.counting_reward = 0
-                with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
-                    self.steps_taken = 0
-                    # this first block before the while loop is for the first reset call
-                    done = lambda: not (simulation.result is None) or (simulation.get_truncation()) # allows for early truncation
-                    truncated = lambda: (self.steps_taken >= self.max_steps)  # TODO handle cases where it is done right on maxsteps
-                    observation = simulation.get_obs()
-                    info = simulation.get_info() 
-                    actions = yield observation, info
-                    simulation.actions = actions # TODO add action dict to simulation interfaces
-                    while not done():
-                        # Probably good that we advance first before any action is set.
-                        # this is consistent with how reset works
-                        simulation.advance()
-                        self.steps_taken += 1
-                        observation = simulation.get_obs()
-                        info = simulation.get_info()
-                        reward = simulation.get_reward()
-                        self.counting_reward += reward
-                        if done():
-                            if simulation.result is None:
-                                simulation.terminateSimulation(TerminationType.terminatedByUser, "early truncation")
-                            print("Simulation done")
-                            self.logScores()
-                            if not self.use_verifai:
-                                self.feedback_result = self.feedback_fn(simulation.result)
-                            if self.record_scenic_sim_results:
-                                self.simulation_results.append(simulation.result)
-                            # simulation.destroy() # FIXME...might redundant?
-                            actions = yield observation, reward, done(), truncated(), info
-                            
-                            break # a little unclean right here
 
-                        actions = yield observation, reward, done(), done(), info
-                        simulation.actions = actions # TODO add action dict to simulation interfaces
-                    print("Exitedwhile loop")
             except ResetException:
                 if self.total_steps_taken >= self.total_steps and self.save_to_csv:
                     write_csv(self.run_name, self.episode_coverages, self.episode_collisions, self.episode_rewards)
@@ -239,55 +209,35 @@ class ScenicGymEnv(gym.Env):
                 print(f"Episode collisions: {self.episode_collisions}")
                 print(f"Mean and std of collisions: {np.mean(self.episode_collisions)} and {np.std(self.episode_collisions)}")
                 print(f"Excel splittable: {np.mean(self.episode_coverages)},{np.std(self.episode_coverages)},{np.mean(self.episode_collisions)},{np.std(self.episode_collisions)}")
-                continue                
-                
-                if len(self.episode_coverages) == self.total_episodes and self.save_to_csv:
-                    write_csv(self.run_name, self.episode_coverages, self.episode_collisions)
-                    print("reset exception caught")
-                print(f"Episode coverages: {self.episode_coverages}")
-                print(f"Mean and std of coverages: {np.mean(self.episode_coverages)} and {np.std(self.episode_coverages)}")
-                print(f"Episode collisions: {self.episode_collisions}")
-                print(f"Mean and std of collisions: {np.mean(self.episode_collisions)} and {np.std(self.episode_collisions)}")
+
                 continue
 
-    def reset(self, seed=None, options=None): # TODO will setting seed here conflict with VerifAI's setting of seed?
-        # only setting enviornment seed, not torch seed?
+    def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+
         if self.loop is None:
-            print("self loop doesnt exist, creating new one")
             self.loop = self._make_run_loop()
-            observation, info = next(self.loop) # not doing self.scene.send(action) just yet
+            observation, info = next(self.loop)
         else:
             observation, info = self.loop.throw(ResetException())
-
-
         return observation, info
-        
+
     def step(self, action):
-        assert not (self.loop is None), "self.loop is None, have you called reset()?"
-
+        assert self.loop is not None, "self.loop is None, have you called reset()?"
         observation, reward, terminated, truncated, info = self.loop.send(action)
-        
-        if terminated or truncated:
-            self.episode_coverages.append(info.get("coverage", 0))
-            self.episode_collisions.append(info.get("collisions", 0))
-        
         return observation, reward, terminated, truncated, info
-    
-    def get_coverage(self):
-        return sum(self.episode_coverages) / len(self.episode_coverages) if self.episode_coverages else 0 
 
-    def render(self): # TODO figure out if this function has to be implemented here or if super() has default implementation
-        """
-        likely just going to be something like simulation.render() or something
-        """
-        # FIXME for one project only...also a bit hacky...
-        # self.env.render()
+    def render(self):
         pass
 
     def close(self):
-        self.simulator.destroy()
-        
+        if self.loop is not None:
+            try:
+                self.loop.close()
+            except StopIteration:
+                pass
+            self.loop = None
+
     def logScores(self):
         if self.training_method == "Random":
             return
