@@ -83,7 +83,7 @@ model = PPO("MultiInputPolicy", training_env, verbose=2, learning_rate=0.0002)
 #     gc.collect()
 
 #------------------------------------------------
-model = PPO.load("PPO_vacuum_agent_latest_Copy.zip", env=training_env)
+model = PPO.load("PPO_vacuum_agent_latest_arsalan.zip", env=training_env)
 # print("Loaded model from file.")
 model.learn(total_timesteps)
 print("Training completed.")
