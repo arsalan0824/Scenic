@@ -28,8 +28,8 @@ import gc
 from collections import deque
 
 def adjust_clip_range(current_total_coverage_sum: float) -> float:
-    # input_val = -0.26 * current_total_coverage_sum + 5.2
-    input_val = -0.03 * current_total_coverage_sum + 1
+    input_val = -0.26 * current_total_coverage_sum + 5.2
+    # input_val = -0.03 * current_total_coverage_sum + 1
     return input_val
 
 start = time.time()
@@ -83,7 +83,7 @@ model = PPO("MultiInputPolicy", training_env, verbose=2, learning_rate=0.0002)
 #     gc.collect()
 
 #------------------------------------------------
-# model = PPO.load("Lidar_PPO_base_50_mod.zip", env=training_env)
+model = PPO.load("PPO_vacuum_agent_latest.zip", env=training_env)
 # print("Loaded model from file.")
 model.learn(total_timesteps)
 print("Training completed.")
