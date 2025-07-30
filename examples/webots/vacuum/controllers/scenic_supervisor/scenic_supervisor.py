@@ -46,7 +46,6 @@ observation_space = gym.spaces.Dict({
     "lidar": gym.spaces.Box(low=0.25, high=5.2, shape=(32,), dtype=np.float64),
     "rotation": gym.spaces.Box(low=np.array([-1,-1,-1,-1]), high=np.array([1,1,1,1]), shape=(4,), dtype=np.float64)
 })
-
 print("Action and observation spaces defined.")
 max_steps = 10000
 
