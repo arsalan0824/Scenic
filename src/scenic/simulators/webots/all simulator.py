@@ -1,140 +1,140 @@
-import sys
-import os
+# from scenic.core.simulators import Simulator, Simulation
+# from scenic.core.scenarios import Scenario
+# import gymnasium as gym
+# from gymnasium import spaces
+# from typing import Callable
+# from collections import deque
+# import numpy as np
 
-try:
-    current_script_dir = os.path.dirname(os.path.abspath(__file__))
-    scenic_src_path = os.path.normpath(os.path.join(current_script_dir, '..', '..', '..', '..', 'src'))
-    if scenic_src_path not in sys.path:
-        sys.path.insert(0, scenic_src_path)
-except Exception as e:
-    print(f"Warning: Could not add Scenic src to path. Error: {e}")
+# # A custom exception to handle resets within the generator loop
+# import gymnasium as gym
+# # Custom exception class
+# class ResetException(Exception):
+#     def __init__(self):
+#         super().__init__("Resetting")
 
-from scenic.gym import ScenicGymEnv
-import scenic
-from scenic.simulators.webots import WebotsSimulator
+# class ScenicGymEnv(gym.Env):
+#     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-import gymnasium as gym
-import numpy as np
+#     def __init__(self,
+#                  scenario : Scenario,
+#                  simulator : Simulator,
+#                  render_mode=None,
+#                  max_steps = 1000,
+#                  observation_space : spaces.Dict = spaces.Dict(),
+#                  action_space : spaces.Dict = spaces.Dict(),
+#                  record_scenic_sim_results : bool = True,
+#                  feedback_fn : Callable = lambda x: x):
 
-from controller import Supervisor
+#         super().__init__()
 
-from stable_baselines3 import PPO
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.evaluation import evaluate_policy
-#-
-import matplotlib.pyplot as plt
-import time
-import gc
-from collections import deque
+#         assert render_mode is None or render_mode in self.metadata["render_modes"]
 
-def adjust_clip_range(current_total_coverage_sum: float) -> float:
-    # input_val = -0.26 * current_total_coverage_sum + 5.2
-    input_val = -0.03 * current_total_coverage_sum + 1
-    return input_val
+#         self.observation_space = observation_space
+#         self.action_space = action_space
+#         self.render_mode = render_mode
+#         self.max_steps = max_steps - 1
+#         self.simulator = simulator
+#         self.scenario = scenario
+#         self.simulation_results = []
 
-start = time.time()
+#         self.feedback_result = None
+#         self.loop = None
+#         self.record_scenic_sim_results = record_scenic_sim_results
+#         self.feedback_fn = feedback_fn
 
-supervisor = Supervisor()
-simulator = WebotsSimulator(supervisor)
-print("Webots simulator initialized.")
-prefix = scenic.__file__[:-22]
+#         self.last_10_episode_coverages = deque(maxlen=10)
+#         self.total_episodes_completed = 0
+#         self.current_total_coverage_sum = 0
 
-action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))
-observation_space = gym.spaces.Dict({
-    "velocity": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
-    "position": gym.spaces.Box(low=np.array([-2.6, -2.6]), high=np.array([2.6, 2.6]), shape=(2,),dtype=np.float64),
-    "lidar": gym.spaces.Box(low=0.25, high=1, shape=(32,), dtype=np.float64),
-    "rotation": gym.spaces.Box(low=np.array([-1,-1,-1,-1]), high=np.array([1,1,1,1]), shape=(4,), dtype=np.float64)
-})
-print("Action and observation spaces defined.")
-max_steps = 10000
+#     def _make_run_loop(self): 
+#         while True:
+#             try:
+#                 # The feedback_result (new_clip_range) is passed to scenario generation
+#                 scene, _ = self.scenario.generate(feedback=self.feedback_result)
+#                 #make a variable so self.current_total_coverage_sum is accessible in simulator.py
+                
+#                 with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
+#                     simulation.current_total_coverage_sum = self.current_total_coverage_sum
+#                     steps_taken = 0
+#                     done_episode = lambda: not (simulation.result is None) or (simulation.get_truncation())
+#                     truncated_episode = lambda: (steps_taken >= self.max_steps)
 
-iterations = 50
-timesteps_per_itr = max_steps * 1
+#                     observation = simulation.get_obs()
+#                     initial_info = {}
+#                     actions = yield observation, initial_info
 
-scenario_template = scenic.scenarioFromFile(prefix + "examples/webots/vacuum/vacuum.scenic",
-                                 model="scenic.simulators.webots.model",
-                                 mode2D=False)
-print("Scenario template loaded.")
+#                     while not done_episode():
+#                         simulation.actions = actions
+#                         reward, step_info = simulation.get_reward()
 
-training_env_unwrapped = ScenicGymEnv(scenario_template,
-                   simulator,
-                   render_mode=None,
-                   max_steps=max_steps,
-                   action_space=action_space,
-                   observation_space=observation_space,
-                   feedback_fn=adjust_clip_range
-                   )
-print("Training environment created.")
-training_env = Monitor(training_env_unwrapped)
+#                         simulation.advance()
+#                         steps_taken += 1
 
-total_timesteps = iterations * timesteps_per_itr
+#                         observation = simulation.get_obs()
+#                         current_info = simulation.get_info()
+#                         current_info.update(step_info)
 
-model = PPO("MultiInputPolicy", training_env, verbose=2, learning_rate=0.0002)
+#                         if done_episode() or truncated_episode():
+#                             _, coverage_ratio = simulation.get_coverage_metric()
+#                             self.last_10_episode_coverages.append(coverage_ratio)
 
+#                             self.total_episodes_completed += 1
+#                             self.current_total_coverage_sum = np.sum(self.last_10_episode_coverages)
 
-# for i in range(iterations):
-#     print(f"\n--- Training Progress: Iteration {i+1}/{iterations} ---")
+#                             # Condition for printing episode coverage summary and updating feedback
+#                             if self.current_total_coverage_sum > 5:
+#                                 print ("lidar has passed 50%, clipping range will be adjusted")
+#                                 # Print episode coverage summary
+#                                 print(f"Episode {self.total_episodes_completed}: "
+#                                       f"Sum of last {len(self.last_10_episode_coverages)} "
+#                                       f"episode coverages: {self.current_total_coverage_sum:.5f}")
 
-#     model.learn(total_timesteps=timesteps_per_itr)
-    
-#     model.save("PPO_vacuum_agent_latest")
+#                                 # Call feedback_fn to get the new clip range value
+#                                 if self.feedback_fn is not None:
+#                                     self.feedback_result = self.feedback_fn(self.current_total_coverage_sum)
+#                                     # Print the new lidar max range directly from here
+#                                     print(f"new LIDAR max range is: {self.feedback_result:.3f} meters")
+#                             # For episodes NOT divisible by 10, ensure feedback_result is still set
+#                             # for subsequent scenario generations if it hasn't been yet.
+#                             elif self.feedback_fn is not None and self.feedback_result is None:
+#                                 self.feedback_result = self.feedback_fn(self.current_total_coverage_sum)
+#                             else:
+#                                 print("Feedback function is None, no new clip range set.")
 
-#     gc.collect()
+#                             if self.record_scenic_sim_results:
+#                                 self.simulation_results.append(simulation.result)
 
-#------------------------------------------------
-# model = PPO.load("Lidar_PPO_base_50_mod.zip", env=training_env)
-# print("Loaded model from file.")
-model.learn(total_timesteps)
-print("Training completed.")
-model.save("PPO_vacuum_agent_latest")
-del model
-del training_env
-gc.collect()
+#                             actions = yield observation, reward, done_episode(), truncated_episode(), current_info
+#                             break
 
-print(f"\nTraining completed. Total timesteps trained: {total_timesteps}")
+#                         actions = yield observation, reward, done_episode(), truncated_episode(), current_info
 
-print("\n--- Starting Evaluation ---")
-scenario_eval = scenic.scenarioFromFile(prefix + "examples/webots/vacuum/vacuum.scenic",
-                                 model="scenic.simulators.webots.model",
-                                 mode2D=False)
+#             except ResetException:
+#                 continue
 
-eval_env = ScenicGymEnv(scenario_eval,
-                            simulator,
-                            render_mode=None,
-                            max_steps=max_steps,
-                            action_space=action_space,
-                            observation_space=observation_space
-                            )
-eval_env = Monitor(eval_env)
+#     def reset(self, seed=None, options=None):
+#         super().reset(seed=seed)
 
-final_model = PPO.load("PPO_vacuum_agent_latest")
-final_model.set_env(eval_env)
+#         if self.loop is None:
+#             self.loop = self._make_run_loop()
+#             observation, info = next(self.loop)
+#         else:
+#             observation, info = self.loop.throw(ResetException())
+#         return observation, info
 
-mean_rwd, std_reward = evaluate_policy(final_model, eval_env, n_eval_episodes=15, render=False, deterministic=False)
+#     def step(self, action):
+#         assert self.loop is not None, "self.loop is None, have you called reset()?"
+#         observation, reward, terminated, truncated, info = self.loop.send(action)
+#         return observation, reward, terminated, truncated, info
 
-print(f"After evaluation mean reward was : {mean_rwd:.2f} with std: {std_reward:.2f}")
+#     def render(self):
+#         pass
 
-episodic_rewards = eval_env.get_episode_rewards()
-print(f"Episodic Rewards (Evaluation): {episodic_rewards}")
-
-if len(episodic_rewards) > 1:
-    total_pc = 0
-    for j in range(1, len(episodic_rewards)):
-        if np.abs(episodic_rewards[j - 1]) > 1e-6:
-            total_pc += (episodic_rewards[j] - episodic_rewards[j - 1]) / np.abs(episodic_rewards[j - 1])
-    print(f"Average normalized percent difference: {total_pc / (len(episodic_rewards) - 1):.4f}")
-else:
-    print("Not enough episodes for average normalized percent difference calculation.")
-
-fig, ax = plt.subplots()
-ax.stem(range(len(episodic_rewards)), episodic_rewards)
-plt.title(f"Episodic Rewards During Evaluation (Total Timesteps: {total_timesteps})")
-plt.xlabel("Episode Number")
-plt.ylabel("Total Reward")
-file_name = f"PPO_policy_{total_timesteps}.png"
-plt.savefig(file_name, format='png')
-plt.show()
-
-end = time.time()
-print(f"Total script execution time: {(end - start) / 60:.2f} minutes")
+#     def close(self):
+#         if self.loop is not None:
+#             try:
+#                 self.loop.close()
+#             except StopIteration:
+#                 pass
+#             self.loop = None

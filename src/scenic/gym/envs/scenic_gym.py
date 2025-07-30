@@ -93,7 +93,10 @@ class ScenicGymEnv(gym.Env):
         self.record_points = True
         self.run_name = "7_29 - F50, ent(.025)" # name of the run, used for saving data to csv
         self.total_steps = 10000*50 # total number of timesteps to run, used for saving data to csv
-        
+        self.current_total_coverage_sum = 0
+
+
+
         if self.use_plr and self.training_method not in ("EL", "LP"):
             raise ValueError(
                 f"use_plr=True but training_method={self.training_method!r}. "
@@ -110,6 +113,61 @@ class ScenicGymEnv(gym.Env):
                 scene = None
                 self.is_resampling = random.uniform(0, 1) < self.buffer_p
                 #sample or resample scenes
+                with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
+                    simulation.current_total_coverage_sum = self.current_total_coverage_sum
+                    steps_taken = 0
+                    done_episode = lambda: not (simulation.result is None) or (simulation.get_truncation())
+                    truncated_episode = lambda: (steps_taken >= self.max_steps)
+
+                    observation = simulation.get_obs()
+                    initial_info = {}
+                    actions = yield observation, initial_info
+
+                    while not done_episode():
+                        simulation.actions = actions
+                        reward, step_info = simulation.get_reward()
+
+                        simulation.advance()
+                        steps_taken += 1
+
+                        observation = simulation.get_obs()
+                        current_info = simulation.get_info()
+                        current_info.update(step_info)
+
+                        if done_episode() or truncated_episode():
+                            _, coverage_ratio = simulation.get_coverage_metric()
+                            self.last_10_episode_coverages.append(coverage_ratio)
+
+                            self.total_episodes_completed += 1
+                            self.current_total_coverage_sum = np.sum(self.last_10_episode_coverages)
+
+                            # Condition for printing episode coverage summary and updating feedback
+                            if self.current_total_coverage_sum > 5:
+                                print ("lidar has passed 50%, clipping range will be adjusted")
+                                # Print episode coverage summary
+                                print(f"Episode {self.total_episodes_completed}: "
+                                      f"Sum of last {len(self.last_10_episode_coverages)} "
+                                      f"episode coverages: {self.current_total_coverage_sum:.5f}")
+
+                                # Call feedback_fn to get the new clip range value
+                                if self.feedback_fn is not None:
+                                    self.feedback_result = self.feedback_fn(self.current_total_coverage_sum)
+                                    # Print the new lidar max range directly from here
+                                    print(f"new LIDAR max range is: {self.feedback_result:.3f} meters")
+                            # For episodes NOT divisible by 10, ensure feedback_result is still set
+                            # for subsequent scenario generations if it hasn't been yet.
+                            elif self.feedback_fn is not None and self.feedback_result is None:
+                                self.feedback_result = self.feedback_fn(self.current_total_coverage_sum)
+                            else:
+                                print("Feedback function is None, no new clip range set.")
+
+                            if self.record_scenic_sim_results:
+                                self.simulation_results.append(simulation.result)
+
+                            actions = yield observation, reward, done_episode(), truncated_episode(), current_info
+                            break
+
+                        actions = yield observation, reward, done_episode(), truncated_episode(), current_info
                 if not self.use_plr:
                     scene, _ = self.scenario.generate(feedback=self.feedback_result)
                 elif self.training_method == "LP" and len(self.resampling_weights) != len(self.buffer_last_reward):
