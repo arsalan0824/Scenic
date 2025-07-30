@@ -51,7 +51,7 @@ observation_space = gym.spaces.Dict({
 print("Action and observation spaces defined.")
 max_steps = 10000
 
-iterations = 50
+iterations = 10
 timesteps_per_itr = max_steps * 1
 
 scenario_template = scenic.scenarioFromFile(prefix + "examples/webots/vacuum/vacuum.scenic",
@@ -85,7 +85,7 @@ model = PPO("MultiInputPolicy", training_env, verbose=2, learning_rate=0.0002)
 #     gc.collect()
 
 #------------------------------------------------
-# model = PPO.load("Lidar_PPO_base_50_mod.zip", env=training_env)
+model = PPO.load("PPO_vacuum_agent_latest.zip", env=training_env)
 # print("Loaded model from file.")
 model.learn(total_timesteps)
 print("Training completed.")
@@ -113,7 +113,7 @@ eval_env = Monitor(eval_env)
 final_model = PPO.load("PPO_vacuum_agent_latest")
 final_model.set_env(eval_env)
 
-mean_rwd, std_reward = evaluate_policy(final_model, eval_env, n_eval_episodes=15, render=False, deterministic=False)
+mean_rwd, std_reward = evaluate_policy(final_model, eval_env, n_eval_episodes=10, render=False, deterministic=False)
 
 print(f"After evaluation mean reward was : {mean_rwd:.2f} with std: {std_reward:.2f}")
 
