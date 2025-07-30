@@ -6,4 +6,5 @@ More detailed world models for particular types of scenarios are in submodules.
 """
 
 from .simulator import WebotsSimulator
+from .simulatorGeneric import WebotsSimulatorGeneric
 from .utils import ENU, EUN, NUE
