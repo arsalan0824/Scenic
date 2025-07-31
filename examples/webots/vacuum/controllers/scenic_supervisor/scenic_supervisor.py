@@ -84,7 +84,7 @@ ax.stem(range(len(episodic_rewards)), episodic_rewards)
 
 file_name = "PPO_policy" + str(total_timesteps)  + ".png"
 plt.savefig(file_name,format='png')
-plt.show()
+#plt.show()
 
 
 end = time.time()
