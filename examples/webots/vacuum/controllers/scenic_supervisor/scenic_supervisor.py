@@ -65,7 +65,7 @@ if(raw["supervisor"]["is_training"]):
     model.save(raw["supervisor"]["model_name"])            # Save the model after training
 
 if(not raw["supervisor"]["is_training"]):
-    mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=3,render=False, deterministic=False)
+    mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False, deterministic=False)
     print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 env.env.logScores()
