@@ -49,7 +49,9 @@ env = ScenicGymEnv(scenario,
                 render_mode=None, 
                 max_steps=max_steps,  
                 action_space=action_space,
-                observation_space=observation_space) # max_step is max step for an episode - Create an enviroment instance
+                observation_space=observation_space,
+                raw = raw
+                ) # max_step is max step for an episode - Create an enviroment instance
 env = Monitor(env)
 
 episodes= raw["supervisor"]["episodes"]

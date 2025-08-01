@@ -49,7 +49,9 @@ class ScenicGymEnv(gym.Env):
                  observation_space : spaces.Dict = spaces.Dict(),
                  action_space : spaces.Dict = spaces.Dict(),
                  record_scenic_sim_results : bool = True,
-                 feedback_fn : callable = lambda x: x): # empty string means just pure scenic???
+                 feedback_fn : callable = lambda x: x,
+                 raw = None
+                 ): # empty string means just pure scenic???
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
 
@@ -66,14 +68,12 @@ class ScenicGymEnv(gym.Env):
         self.record_scenic_sim_results = record_scenic_sim_results
         self.feedback_fn = feedback_fn
         
-        with open("../../../../../config.yaml") as f:
-            raw = yaml.safe_load(f)
-        
         #CHANGEABLE STUFF, CHECK BEFORE EACH RUN ALSO CHECK THAT THE BUFFER IS EMPTY
         self.training_method = raw["training"]["training_method"]
         self.use_plr = raw["training"]["use_plr"]
         self.use_verifai = raw["training"]["use_verifai"]
         self.buffer_p = raw["training"]["buffer_p"] # probability of resampling
+        self.truncate = raw["simulator"]["truncate"]
         #Random: default
         #LP: Prioritized level replay based off learning potential
         #EL: episode length, probability distribution based off inverse of episode length, need termination
@@ -126,7 +126,7 @@ class ScenicGymEnv(gym.Env):
                 scene = None
                 self.is_resampling = random.uniform(0, 1) < self.buffer_p
                 #sample or resample scenes
-                if not self.use_plr:
+                if not self.use_plr and not self.use_verifai:
                     scene, _ = self.scenario.generate(feedback=self.feedback_result)
                 elif self.training_method == "LP" and len(self.resampling_weights) != len(self.buffer_last_reward):
                     # resample scene
@@ -156,7 +156,7 @@ class ScenicGymEnv(gym.Env):
                 with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
                     self.steps_taken = 0
                     # this first block before the while loop is for the first reset call
-                    done = lambda: not (simulation.result is None) or (simulation.get_truncation()) # allows for early truncation
+                    done = lambda: not (simulation.result is None) or (simulation.get_truncation() and self.truncate) # allows for early truncation
                     truncated = lambda: (self.steps_taken >= self.max_steps)  # TODO handle cases where it is done right on maxsteps
                     observation = simulation.get_obs()
                     info = simulation.get_info() 
