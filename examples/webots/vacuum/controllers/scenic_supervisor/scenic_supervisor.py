@@ -41,7 +41,8 @@ array_size = 1 #find in simulator.py by ctrl f'ing array_size
 observation_space = gym.spaces.Dict({
     "velocity": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
     "sensor": gym.spaces.Box(low=np.array([0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1]),shape=(7,),dtype=np.float64), # defines the range of observations of the agent
-    "position": gym.spaces.Box(low=np.array([-2.6, -2.6]), high=np.array([2.6, 2.6]), shape=(2,),dtype=np.float64),
+    "position": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
+    "rotation": gym.spaces.Box(low=np.array([-1,-1,-1,-1]), high=np.array([1,1,1,1]), shape=(4,), dtype=np.float64)
 })
 max_steps = raw["supervisor"]["max_steps"]
 env = ScenicGymEnv(scenario, 
@@ -58,7 +59,7 @@ episodes= raw["supervisor"]["episodes"]
 total_timesteps = max_steps * episodes
 print(total_timesteps)
 
-model = PPO("MultiInputPolicy", env, verbose=2, learning_rate=0.0002,ent_coef=0.05)
+model = PPO("MultiInputPolicy", env, verbose=2, learning_rate=0.0002,ent_coef=0.05,device="cpu")
 # Create an instance of an agent 
 if(raw["supervisor"]["base_model"] != "na"):
     model.set_parameters(raw["supervisor"]["base_model"]) # Load the parameters of a previously trained agent

@@ -151,11 +151,8 @@ class WebotsSimulation(Simulation):
             "velocity": np.zeros(2), 
             "sensor": np.zeros(7),
             "position": np.zeros(2),
+            "rotation": np.zeros(4)
         } # TODO Need to fix obs and initialziation        
-        
-        with open("../../../../../config.yaml") as f:
-            raw = yaml.safe_load(f)
-        self.truncate = raw["simulator"]["truncate"]
         
         super().__init__(scene, timestep=timestep, **kwargs)
 
@@ -326,12 +323,14 @@ class WebotsSimulation(Simulation):
             print(f"Saved step count: {saved_stepcount}")
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
+        rot = np.array(self.supervisor_node.getField("rotation").getSFVec2f(), dtype=np.float32)
         self.observation = {
             "velocity": np.array([self.actions[0], self.actions[1]]),
             "sensor": np.array([self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, # ensures that null values are not returned from unintialized sensors
                 self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
                                      self.sensor_actual_right.getValue()/800]),       
-            "position": np.array(pos),
+            "position": np.array(self.pos[0]/2.6, self.pos[1]/2.6),
+            "rotation": np.array([rot[0], rot[1], rot[2], rot[3]])
         }
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
@@ -581,9 +580,6 @@ class WebotsSimulation(Simulation):
             self.actions[1] = 0 # set invalid action to 0 instead
     
     def get_truncation(self):
-        if(not self.truncate):
-            return False
-        
         if self.collision_safeguard > 50:
             return True
         else:
