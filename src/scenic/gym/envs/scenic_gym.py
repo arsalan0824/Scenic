@@ -9,7 +9,7 @@ import random
 import numpy as np
 
 import pandas as pd
-import yaml
+import os
 
 setDebuggingOptions(verbosity=2)
 
@@ -17,6 +17,7 @@ setDebuggingOptions(verbosity=2)
 
 file_path = "../../../../../output.csv"
 point_file_path = "../../../../../point_outputs/"
+base_buffer_path = "../../../../../buffers/"
 
 def write_csv(name, coverage, collisions, discrete_collisions, rewards):
     rows = [[f"coverage_{name}"] + list(coverage),
@@ -93,7 +94,12 @@ class ScenicGymEnv(gym.Env):
             self.save_to_csv = False 
             self.record_points = False
             
-    
+        if(self.use_plr):
+            self.buffer_path = f"{base_buffer_path}{self.run_name}_buffer"
+            os.makedirs(self.buffer_path, exist_ok=True)
+            
+        if(self.training_method == "Random"):
+            self.truncate = True
         
         #load arrays
         self.resampling_weights =  np.array([]) # resamling weights of scenes in the buffer
@@ -132,7 +138,7 @@ class ScenicGymEnv(gym.Env):
                     # resample scene
                     self.flag = 0
                     self.working_index = len(self.buffer_last_reward) - 1
-                    with open(f"../../../../../../buffer/scene_{self.working_index}.bin", "rb") as f:
+                    with open(f"{self.buffer_path}/scene_{self.working_index}.bin", "rb") as f:
                         scene = self.scenario.sceneFromBytes(f.read())
                     print("Double sampling")
                 elif self.use_plr and self.is_resampling and len(self.resampling_weights) > 0:
@@ -140,14 +146,14 @@ class ScenicGymEnv(gym.Env):
                     self.flag = 1
                     prob_distribution = self.resampling_weights / np.sum(self.resampling_weights)
                     self.working_index = np.random.choice(len(self.resampling_weights), p=prob_distribution)
-                    with open(f"../../../../../../buffer/scene_{self.working_index}.bin", "rb") as f:
+                    with open(f"{self.buffer_path}/scene_{self.working_index}.bin", "rb") as f:
                         scene = self.scenario.sceneFromBytes(f.read())
                     print(f"Resampling from buffer with index {self.working_index}")
                 else:
                     # sample new scene
                     self.flag = 2
                     scene, _ = self.scenario.generate(feedback=self.feedback_result)
-                    with open(f"../../../../../../buffer/scene_{len(self.resampling_weights)}.bin", "wb") as f:
+                    with open(f"{self.buffer_path}/scene_{len(self.resampling_weights)}.bin", "wb") as f:
                         f.write(self.scenario.sceneToBytes(scene=scene))
                     self.working_index = len(self.resampling_weights)
                     print(f"Sampling new scene with index {self.working_index}")
