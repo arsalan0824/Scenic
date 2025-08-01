@@ -19,9 +19,11 @@ from collections import defaultdict
 import ctypes
 import math
 from os import path
+import os
 import tempfile
 from textwrap import dedent
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import numpy as np
 import trimesh
 from scipy.stats import gaussian_kde
@@ -376,7 +378,8 @@ class WebotsSimulation(Simulation):
         # min_lidar = min(self.observation["lidar"])
         # print(min_lidar)
         # if (min_lidar < 0.4):
-
+        #print ("this is the couch", self.records["couchPosition"][len(self.records["couchPosition"]) - 1][1])
+        
         #------------------------------------------------------------------
         
         #print(f"Sum of covered spaces last 10 episodes: {np.sum(self.last_10_episode_coverages)}") #print sum of covered spaces last 10 episodes
@@ -508,60 +511,250 @@ class WebotsSimulation(Simulation):
             "final_score": score
         }
 
+    def create_heatmap(self, coordinates):
+        if not coordinates:
+            print("No data to plot.")
+            return
 
-    def create_heatmap(self,coordinates):
-            if not coordinates:
-                print("No data to plot.")
-                return
+        x, y = zip(*coordinates)
+        x = np.asarray(x)
+        y = np.asarray(y)
 
-            x, y = zip(*coordinates)
-            x = np.asarray(x)
-            y = np.asarray(y)
+        data = np.vstack([x, y])
 
-            data = np.vstack([x, y])
-
-            if len(np.unique(data, axis=1)) <= 1:
-                plt.figure(figsize=(8, 6))
-                plt.scatter(x, y, color='red', s=100)
-                plt.title('Single Coordinate Point')
-                plt.xlabel('X-coordinate')
-                plt.ylabel('Y-coordinate')
-                plt.xlim(-2.545, 2.545)
-                plt.ylim(-2.545, 2.545)
-                plt.grid(True)
-                plt.show()
-                return
-
-            try:
-                kde = gaussian_kde(data)
-            except np.linalg.LinAlgError:
-                print("cant be llinear.")
-                return
-
-            # Always use a fixed 5.09 x 5.09 grid
-            x_min, x_max = -2.545, 2.545
-            y_min, y_max = -2.545, 2.545
-
-            xi, yi = np.mgrid[x_min:x_max:100j, y_min:y_max:100j]
-            zi = kde(np.vstack([xi.flatten(), yi.flatten()])).reshape(xi.shape)
-
+        if len(np.unique(data, axis=1)) <= 1:
             plt.figure(figsize=(8, 6))
-            plt.pcolormesh(xi, yi, zi, shading='gouraud', cmap='coolwarm')
-            plt.colorbar(label='Density')
-            plt.title('Heatmap of Covered Spaces')
+            plt.scatter(x, y, color='red', s=100)
+            plt.title('Single Coordinate Point')
             plt.xlabel('X-coordinate')
             plt.ylabel('Y-coordinate')
-            plt.xlim(x_min, x_max)
-            plt.ylim(y_min, y_max)
+            plt.xlim(-2.545, 2.545)
+            plt.ylim(-2.545, 2.545)
             plt.grid(True)
             plt.show()
+            return
 
+        try:
+            kde = gaussian_kde(data)
+        except np.linalg.LinAlgError:
+            print("Can't perform KDE (likely due to linear data).")
+            return
+
+        # Fixed grid range
+        x_min, x_max = -2.545, 2.545
+        y_min, y_max = -2.545, 2.545
+
+        xi, yi = np.mgrid[x_min:x_max:100j, y_min:y_max:100j]
+        zi = kde(np.vstack([xi.flatten(), yi.flatten()])).reshape(xi.shape)
+
+        # Create plot with furniture overlays
+        fig, ax = plt.subplots(figsize=(8, 6))
+        c = ax.pcolormesh(xi, yi, zi, shading='gouraud', cmap='coolwarm')
+        fig.colorbar(c, ax=ax, label='Density')
+
+        #  furniture 
+        try:
+            couch = patches.Rectangle(
+                (
+                    self.records["couchPosition"][-1][1][0] - 0.375,
+                    self.records["couchPosition"][-1][1][1] - 1
+                ),
+                0.75,
+                2,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(couch)
+
+            ax.text(
+                self.records["couchPosition"][-1][1][0],     
+                self.records["couchPosition"][-1][1][1],   
+                'couch',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+
+            coffee_table = patches.Rectangle(
+                (
+                    self.records["coffee_tablePosition"][-1][1][0] - 0.25,
+                    self.records["coffee_tablePosition"][-1][1][1] - 0.75
+                ),
+                0.5,
+                1.5,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(coffee_table)
+
+            ax.text(
+                self.records["coffee_tablePosition"][-1][1][0],     
+                self.records["coffee_tablePosition"][-1][1][1],   
+                'Coffe Table',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+
+
+            dining_table = patches.Rectangle(
+                (
+                    self.records["DiningTablePosition"][-1][1][0] - 0.375,
+                    self.records["DiningTablePosition"][-1][1][1] - 0.375
+                ),
+                0.75,
+                0.75,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(dining_table)
+
+            ax.text(
+                self.records["DiningTablePosition"][-1][1][0],     
+                self.records["DiningTablePosition"][-1][1][1],   
+                'Dining Table',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+
+            Chair1 = patches.Rectangle(
+                (
+                    self.records["chair_1Position"][-1][1][0] - 0.2,
+                    self.records["chair_1Position"][-1][1][1] - 0.2
+                ),
+                0.4,
+                0.4,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(Chair1)
+
+            ax.text(
+                self.records["chair_1Position"][-1][1][0],     
+                self.records["chair_1Position"][-1][1][1],   
+                'Chair 1',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+
+            Chair3 = patches.Rectangle(
+                (
+                    self.records["chair_3Position"][-1][1][0] - 0.2,
+                    self.records["chair_3Position"][-1][1][1] - 0.2
+                ),
+                0.4,
+                0.4,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(Chair3)
+
+            ax.text(
+                self.records["chair_3Position"][-1][1][0],     
+                self.records["chair_3Position"][-1][1][1],   
+                'Chair 3',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+            
+        except (KeyError, IndexError):
+            print("Furniture positions missing or improperly formatted.")
+
+        ax.set_title('Heatmap of Covered Spaces with Furniture')
+        ax.set_xlabel('X-coordinate')
+        ax.set_ylabel('Y-coordinate')
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        ax.set_aspect('equal')
+        ax.grid(True)
+
+        if episodes % 10 == 0:
+            filename = fr"C:\Users\PC-5\Downloads\SIP_Work_Graphs\heatmap_episode{episodes}.png"
+            plt.savefig(filename, dpi=300)
+        # if episodes == 5:
+        #     plt.savefig("heatmap_episode5.png", dpi=300)
+        # if episodes == 10:
+        #     plt.savefig("heatmap_episode10.png", dpi=300)
+
+    # def furniture_layout(self,):
+    #     fig, ax = plt.subplots()    
+
+    #     couch = patches.Rectangle(
+    #         (
+    #             self.records["couchPosition"][-1][1][0] - 0.375 ,
+    #             self.records["couchPosition"][-1][1][1] -1
+    #         ),
+    #         0.75,
+    #         2,
+    #         linewidth=2,
+    #         edgecolor='blue',
+    #         facecolor='blue'
+    #     )
+    #     ax.add_patch(couch)
+
+    #     coffe_table = patches.Rectangle(
+    #         (
+    #             self.records["coffee_tablePosition"][-1][1][0] - 0.25 ,
+    #             self.records["coffee_tablePosition"][-1][1][1] - 0.75
+    #         ),
+    #         0.5,
+    #         1.5,
+    #         linewidth=2,
+    #         edgecolor='red',
+    #         facecolor='red'
+    #     )
+    #     ax.add_patch(coffe_table)
+
+    #     dinning_table = patches.Rectangle(
+    #         (
+    #             self.records["DiningTablePosition"][-1][1][0] - 0.375 ,
+    #             self.records["DiningTablePosition"][-1][1][1] - 0.375
+    #         ),
+    #         0.75,
+    #         0.75,
+    #         linewidth=2,
+    #         edgecolor='yellow',
+    #         facecolor='yellow'
+    #     )
+    #     ax.add_patch(dinning_table)
+
+
+    #     ax.set_xlim(-2.545,2.545)
+    #     ax.set_ylim(-2.545,2.545)
+    #     ax.set_aspect('equal')
+    #     ax.grid(True)
+
+    #     plt.title("Furniture Layout")
+    #     plt.xlabel("X-axis")
+    #     plt.ylabel("Y-axis")
+
+    #     plt.show()
             
     def destroy(self):
         global episodes
         episodes += 1
-        if episodes == 1:
+        if episodes % 10 == 0:
             self.create_heatmap(self.covered_spaces)
+        # if episodes == 1:
+        #     self.furniture_layout ()
         print(f"Episode number: {episodes}")
         print(f"This is the metric: {self.metric()}")
         print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")

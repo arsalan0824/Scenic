@@ -47,9 +47,9 @@ observation_space = gym.spaces.Dict({
     "rotation": gym.spaces.Box(low=np.array([-1,-1,-1,-1]), high=np.array([1,1,1,1]), shape=(4,), dtype=np.float64)
 })
 print("Action and observation spaces defined.")
-max_steps = 10000
+max_steps = 1000
 
-iterations = 50
+iterations = 6
 timesteps_per_itr = max_steps * 1
 
 scenario_template = scenic.scenarioFromFile(prefix + "examples/webots/vacuum/vacuum.scenic",
@@ -135,6 +135,8 @@ plt.ylabel("Total Reward")
 file_name = f"PPO_policy_{total_timesteps}.png"
 plt.savefig(file_name, format='png')
 plt.show()
+
+
 
 end = time.time()
 print(f"Total script execution time: {(end - start) / 60:.2f} minutes")
