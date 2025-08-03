@@ -94,9 +94,8 @@ class ScenicGymEnv(gym.Env):
             self.save_to_csv = False 
             self.record_points = False
             
-        if(self.use_plr):
-            self.buffer_path = f"{base_buffer_path}{self.run_name}_buffer"
-            os.makedirs(self.buffer_path, exist_ok=True)
+        self.buffer_path = f"{base_buffer_path}{self.run_name}_buffer"
+        os.makedirs(self.buffer_path, exist_ok=True)
             
         if(self.training_method == "EL"):
             self.truncate = True
