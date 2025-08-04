@@ -42,9 +42,11 @@ if no_verifai:
 
         couch = new Couch on floor, ahead of left_wall by 0.335, 
                 facing away from left_wall, with regionContainedIn living_room_region
+        record (couch.x, couch.y, couch.z) as couchPosition
 
         coffee_table = new CoffeeTable on floor, ahead of couch by 0.336, 
                 facing away from couch, with regionContainedIn living_room_region
+        record (coffee_table.x, coffee_table.y, coffee_table.z) as coffee_tablePosition
 
         # # Add some noise to the positions of the couch and coffee table
         mutate couch, coffee_table
@@ -57,11 +59,16 @@ if no_verifai:
         dining_room_region = RectangularRegion(1.25 @ 0, 0, 5, 5).difference(safe_zone)
 
         dining_table = new DiningTable on floor, facing Range(0, 360 deg), with size .1
+        record (dining_table.x, dining_table.y, dining_table.z) as DiningTablePosition
 
         chair_1 = new DiningChair on floor, behind dining_table by -.1, 
                         facing toward dining_table, with regionContainedIn dining_room_region
+        record (chair_1.x, chair_1.y, chair_1.z) as chair_1Position
+       
         chair_3 = new DiningChair on floor, left of dining_table by -.1, 
                         facing toward dining_table, with regionContainedIn dining_room_region
+        record (chair_3.x, chair_3.y, chair_3.z) as chair_3Position
+      
         #Add some noise to the positions and yaw of the chairs around the table
         mutate chair_1, chair_3
 else:
@@ -79,8 +86,11 @@ else:
         couch = new Couch on floor, facing VerifaiRange((-dnev*5) deg, (dnev*5) deg) relative to ideal_pos, with regionContainedIn living_room_region,
                         at ideal_pos offset by (VerifaiRange(-dnev*.05, dnev*.05) @ VerifaiRange(-dnev*.5, dnev*.5))
         ideal_pos = new OrientedPoint ahead of couch by 0.336, facing away from couch
+        record (couch.x, couch.y, couch.z) as couchPosition
+        
         coffee_table = new CoffeeTable on floor, facing VerifaiRange((-dnev*5) deg, (dnev*5) deg) relative to ideal_pos, with regionContainedIn living_room_region,
                         at ideal_pos offset by (VerifaiRange(-dnev*.05, dnev*.05) @ VerifaiRange(-dnev*.05, dnev*.05))
+        record (coffee_table.x, coffee_table.y, coffee_table.z) as coffee_tablePosition
 
         new Toy on floor, at (VerifaiRange(-2.5, 2.5), VerifaiRange(-2.5, 2.5), 10)
         new Toy on floor, at (VerifaiRange(-2.5, 2.5), VerifaiRange(-2.5, 2.5), 10)
@@ -92,15 +102,20 @@ else:
 
         dining_table = new DiningTable on floor, at (VerifaiRange(-2.5, 2.5) @ VerifaiRange(-2.5, 2.5)), with size .1
         ideal_pos = new OrientedPoint behind dining_table by -0.1, facing toward dining_table
+        record (dining_table.x, dining_table.y, dining_table.z) as DiningTablePosition
+        
         chair_1 = new DiningChair on floor, 
                         facing VerifaiRange((-dnev*10) deg, (dnev*10) deg) relative to ideal_pos,
                         at ideal_pos offset by (VerifaiRange(-dnev*.05, dnev*.05) @ VerifaiRange(-dnev*.05, dnev*.05)),
                         with regionContainedIn dining_room_region     
         ideal_pos = new OrientedPoint left of dining_table by -0.1, facing toward dining_table
+        record (chair_1.x, chair_1.y, chair_1.z) as chair_1Position
+       
         chair_3 = new DiningChair on floor, 
                         facing VerifaiRange((-dnev*10) deg, (dnev*10) deg) relative to ideal_pos,
                         at ideal_pos offset by (VerifaiRange(-dnev*.05, dnev*.05) @ VerifaiRange(-dnev*.05, dnev*.05)), 
                         with regionContainedIn dining_room_region
+        record (chair_3.x, chair_3.y, chair_3.z) as chair_3Position
 
 # chosen_big_objects = random.sample(big_objects, 2)
 # chosen_small_objects =  random.sample(small_objects, 2)

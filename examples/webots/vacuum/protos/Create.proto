@@ -578,6 +578,18 @@ Robot {
       ]
       type "generic"
     }
+
+    DEF CREATE_LIDAR Lidar {
+      translation 0 0 0.04
+      rotation 0 0 1 0
+      name "LIDAR"
+      fieldOfView  6.28
+      maxRange 5.2
+      minRange 0.25
+      horizontalResolution 32
+      numberOfLayers       1
+    }
+    
     DEF CREATE_CLIFF_SENSOR_BACK DistanceSensor {
       translation -0.16 0.0 0.0
       rotation 0.0 0.131 -0.0991 3.14

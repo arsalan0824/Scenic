@@ -16,9 +16,12 @@ documentation for details.
 
 from collections import defaultdict
 import ctypes
+from scipy.stats import gaussian_kde
+import matplotlib.pyplot as plt
 import math
 from os import path
 import tempfile
+import matplotlib.patches as patches
 from textwrap import dedent
 
 import numpy as np
@@ -38,6 +41,7 @@ import yaml
 import math, numpy as np
 from trimesh.proximity import closest_point
 from trimesh.proximity import ProximityQuery
+
 episodes = 0
 saved_stepcount = 0
 class WebotsSimulator(Simulator):
@@ -65,12 +69,17 @@ class WebotsSimulator(Simulator):
         system = worldInfo.getField("coordinateSystem").getSFString()
         self.coordinateSystem = WebotsCoordinateSystem(system)
 
-    def createSimulation(self, scene, **kwargs):
-        self.episode_count += 1
-        self.current_simulation = WebotsSimulation(
-            scene, self.supervisor, coordinateSystem=self.coordinateSystem, **kwargs
-        )
-        return self.current_simulation
+    def createSimulation(self, scene, lidar_max_range=None, **kwargs): #accept lidar_max_range
+            self.episode_count += 1
+            self.current_simulation = WebotsSimulation(
+                scene,
+                self.supervisor,
+                coordinateSystem=self.coordinateSystem,
+                parent_simulator=self,
+                # lidar_max_range=lidar_max_range, #Pass it to WebotsSimulation
+                **kwargs
+            )
+            return self.current_simulation
 
 
 class WebotsSimulation(Simulation):
@@ -81,7 +90,7 @@ class WebotsSimulation(Simulation):
             exposed for the use of scenarios which need to call Webots APIs
             directly; e.g. :scenic:`simulation().supervisor.setLabel({...})`.
     """
-    def __init__(self, scene, supervisor, coordinateSystem=ENU, *, timestep, **kwargs):
+    def __init__(self, scene, supervisor, coordinateSystem=ENU, *, timestep, parent_simulator=None, lidar_max_range=None, **kwargs): # Accept lidar_max_range
         #room data
         self.room_width = 5.    
         self.room_length = 5.   
@@ -134,6 +143,8 @@ class WebotsSimulation(Simulation):
         self.sensor_back = self.supervisor.getDevice("cliff_back")
         self.sensor_actual_left = self.supervisor.getDevice("actual_left")
         self.sensor_actual_right = self.supervisor.getDevice("actual_right")
+        self.LIDAR = self.supervisor.getDevice("LIDAR")
+
 
         self.left_motor.setPosition(float('inf'))
         self.right_motor.setPosition(float('inf'))
@@ -147,12 +158,17 @@ class WebotsSimulation(Simulation):
         self.ms = round(1000 * self.timestep)
 
         #observation space
+
         self.observation = {
             "velocity": np.zeros(2), 
-            "sensor": np.zeros(7),
+            #"sensor": np.zeros(7),
+            "lidar": np.full(32, 0.25), #there are 32 lidar sensors
             "position": np.zeros(2),
-            "rotation": np.zeros(4)
+            "rotation": [0,0,0,0]
+            # "sectional_coverage":np.zeros(16),
+            # "current_section": 0
         } # TODO Need to fix obs and initialziation        
+              
         
         super().__init__(scene, timestep=timestep, **kwargs)
 
@@ -316,21 +332,61 @@ class WebotsSimulation(Simulation):
                # TODO more elegant fix here, sensor need to be adaquetly initialized before the simlation begins stepping
                 self.init_step()
 
+        rot = np.array(self.supervisor_node.getField("rotation").getSFVec2f(), dtype=np.float32)
+
         self.total_steps += 1
-        global saved_stepcount
-        saved_stepcount += 1
-        if(saved_stepcount % 100 == 0):
-            print(f"Saved step count: {saved_stepcount}")
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
-        rot = np.array(self.supervisor_node.getField("rotation").getSFVec2f(), dtype=np.float32)
+        #if episode is under 10 input_val=2.6, else input_val=100- self.current_total_coverage_sum
+        #self.current_total_coverage_sum max assuming 100% acorss 10 episodes is 10
+        input_val = -0.26 * self.current_total_coverage_sum + 5.2
+        # input_val = -0.03 * self.current_total_coverage_sum + 1
+        if self.current_total_coverage_sum < 5:
+            input_val = 5.2
+            # input_val = 1
+        else:
+            input_val = -0.26 * self.current_total_coverage_sum + 5.2
+            # input_val = -0.03 * self.current_total_coverage_sum + 1
+
+
+        raw_lidar = np.array(self.LIDAR.getRangeImage(), dtype=np.float64)
+        raw_lidar = np.nan_to_num(raw_lidar, nan=input_val, posinf=input_val, neginf=0.25)
+        #max value is input_val, min value is 0.25
+        raw_lidar = np.clip(raw_lidar, 0.25, input_val)
+
+        #-----------------------------------------------------------------------
+        # # #print episode
+        # print(f"Episode number: {episodes}")
+        ##print lidar values, not normalized
+        #print(f"LIDAR values: {raw_lidar}") #print lidar values for debugging
+        # #print sum of covered spaces last 10 episodes
+        #print (f"sum of last 10 episodes {self.current_total_coverage_sum:.5f}")
+        # print (f"input_val (max on lidar) {input_val:.5f}")
+        # #print coverage percentage
+        # print(f"Coverage percentage: {self.best_coverage[1] * 100:.2f}%")
+        # min_lidar = min(self.observation["lidar"])
+        # print(min_lidar)
+        # if (min_lidar < 0.4):
+        #print ("this is the couch", self.records["couchPosition"][len(self.records["couchPosition"]) - 1][1])
+        
+        #------------------------------------------------------------------
+        
+        #print(f"Sum of covered spaces last 10 episodes: {np.sum(self.last_10_episode_coverages)}") #print sum of covered spaces last 10 episodes
+        #print(f"input_val used for nan and posinf: {input_val}")
+        #raw_lidar = np.clip(raw_lidar, 0.2, self.objects[0].clip_range)  # ensure it stays in observation space bounds
+        # raw_lidar = (raw_lidar - 0.2) / (self.objects[0].clip_range - 0.2) # change 2.6 to max range
+        #print(f"LIDAR (min/avg/max): {np.min(raw_lidar):.5f}/{np.mean(raw_lidar):.5f}/{np.max(raw_lidar):.5f}")
+        # Assemble observation
         self.observation = {
             "velocity": np.array([self.actions[0], self.actions[1]]),
-            "sensor": np.array([self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, # ensures that null values are not returned from unintialized sensors
-                self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
-                                     self.sensor_actual_right.getValue()/800]),       
-            "position": np.array(self.pos[0]/2.6, self.pos[1]/2.6),
-            "rotation": np.array([rot[0], rot[1], rot[2], rot[3]])
+            # "sensor": np.array([self.sensor_left.getValue()/800, self.sensor_right.getValue()/800, # ensures that null values are not returned from unintialized sensors
+            #     self.sensor_front_right.getValue()/800, self.sensor_front_left.getValue()/800, self.sensor_back.getValue()/800, self.sensor_actual_left.getValue()/800,  
+            #                          self.sensor_actual_right.getValue()/800]),
+            "position": np.array(pos),
+            "lidar": raw_lidar,
+            "rotation" : np.array([rot[0], rot[1], rot[2], rot[3]]),
+            # "sectional_coverage": self.sectional_coverage / (self.total_spaces / 16),
+            # "current_section": self.posToIdx(pos)
         }
         self.transform_vel()
         self.left_motor.setVelocity(self.actions[0]) 
@@ -372,6 +428,7 @@ class WebotsSimulation(Simulation):
 
         self.sensor_front_left.enable(self.ms)
         self.sensor_left.enable(self.ms)
+        self.LIDAR.enable(self.ms)
 
 
         self.sensor_back.enable(self.ms)
@@ -442,9 +499,194 @@ class WebotsSimulation(Simulation):
             "final_score": score
         }
 
+    def create_heatmap(self, coordinates):
+        if not coordinates:
+            print("No data to plot.")
+            return
+
+        x, y = zip(*coordinates)
+        x = np.asarray(x)
+        y = np.asarray(y)
+
+        data = np.vstack([x, y])
+
+        if len(np.unique(data, axis=1)) <= 1:
+            plt.figure(figsize=(8, 6))
+            plt.scatter(x, y, color='red', s=100)
+            plt.title('Single Coordinate Point')
+            plt.xlabel('X-coordinate')
+            plt.ylabel('Y-coordinate')
+            plt.xlim(-2.545, 2.545)
+            plt.ylim(-2.545, 2.545)
+            plt.grid(True)
+            plt.show()
+            return
+
+        try:
+            kde = gaussian_kde(data)
+        except np.linalg.LinAlgError:
+            print("Can't perform KDE (likely due to linear data).")
+            return
+
+        # Fixed grid range
+        x_min, x_max = -2.545, 2.545
+        y_min, y_max = -2.545, 2.545
+
+        xi, yi = np.mgrid[x_min:x_max:100j, y_min:y_max:100j]
+        zi = kde(np.vstack([xi.flatten(), yi.flatten()])).reshape(xi.shape)
+
+        # Create plot with furniture overlays
+        fig, ax = plt.subplots(figsize=(8, 6))
+        c = ax.pcolormesh(xi, yi, zi, shading='gouraud', cmap='coolwarm')
+        fig.colorbar(c, ax=ax, label='Density')
+
+        #  furniture 
+        try:
+            couch = patches.Rectangle(
+                (
+                    self.records["couchPosition"][-1][1][0] - 0.375,
+                    self.records["couchPosition"][-1][1][1] - 1
+                ),
+                0.75,
+                2,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(couch)
+
+            ax.text(
+                self.records["couchPosition"][-1][1][0],     
+                self.records["couchPosition"][-1][1][1],   
+                'couch',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+
+            coffee_table = patches.Rectangle(
+                (
+                    self.records["coffee_tablePosition"][-1][1][0] - 0.25,
+                    self.records["coffee_tablePosition"][-1][1][1] - 0.75
+                ),
+                0.5,
+                1.5,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(coffee_table)
+
+            ax.text(
+                self.records["coffee_tablePosition"][-1][1][0],     
+                self.records["coffee_tablePosition"][-1][1][1],   
+                'Coffe Table',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+
+
+            dining_table = patches.Rectangle(
+                (
+                    self.records["DiningTablePosition"][-1][1][0] - 0.375,
+                    self.records["DiningTablePosition"][-1][1][1] - 0.375
+                ),
+                0.75,
+                0.75,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(dining_table)
+
+            ax.text(
+                self.records["DiningTablePosition"][-1][1][0],     
+                self.records["DiningTablePosition"][-1][1][1],   
+                'Dining Table',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+
+            Chair1 = patches.Rectangle(
+                (
+                    self.records["chair_1Position"][-1][1][0] - 0.2,
+                    self.records["chair_1Position"][-1][1][1] - 0.2
+                ),
+                0.4,
+                0.4,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(Chair1)
+
+            ax.text(
+                self.records["chair_1Position"][-1][1][0],     
+                self.records["chair_1Position"][-1][1][1],   
+                'Chair 1',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+
+            Chair3 = patches.Rectangle(
+                (
+                    self.records["chair_3Position"][-1][1][0] - 0.2,
+                    self.records["chair_3Position"][-1][1][1] - 0.2
+                ),
+                0.4,
+                0.4,
+                linewidth=2,
+                edgecolor='black',
+                facecolor='black'
+            )
+            ax.add_patch(Chair3)
+
+            ax.text(
+                self.records["chair_3Position"][-1][1][0],     
+                self.records["chair_3Position"][-1][1][1],   
+                'Chair 3',
+                color='white', 
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold'
+            )
+            
+        except (KeyError, IndexError):
+            print("Furniture positions missing or improperly formatted.")
+
+        ax.set_title('Heatmap of Covered Spaces with Furniture')
+        ax.set_xlabel('X-coordinate')
+        ax.set_ylabel('Y-coordinate')
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        ax.set_aspect('equal')
+        ax.grid(True)
+
+        if episodes % 10 == 0:
+            filename = fr"C:\Users\PC-5\Downloads\SIP_Work_Graphs\heatmap_episode{episodes}.png"
+            plt.savefig(filename, dpi=300)
+        # if episodes == 5:
+        #     plt.savefig("heatmap_episode5.png", dpi=300)
+        # if episodes == 10:
+        #     plt.savefig("heatmap_episode10.png", dpi=300)
+    
     def destroy(self):
         global episodes
         episodes += 1
+        if episodes % 10 == 0:
+            self.create_heatmap(self.covered_spaces)
         print(f"Episode number: {episodes}")
         #print(f"This is the metric: {self.metric()}")
         print(f"Covered {self.best_coverage[0]} cells out of {self.total_spaces} ({self.best_coverage[1]*100:.2f}%)")
@@ -500,12 +742,10 @@ class WebotsSimulation(Simulation):
             return reward
 
     def checkCollisions(self):
-        minDist = 0.001
-        if np.any(self.observation["sensor"][:5] < minDist):
-                return True
+        minDist = 0.01
         for i in range(len(self.prox_checks)):
             if math.dist(self.spheres[i][0], self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]) > .335/2 + self.spheres[i][1] + minDist:
-                continue  
+                continue    
             if(abs(self.prox_checks[i].signed_distance(np.array([self.records["EgoPosition"][len(self.records["EgoPosition"]) - 1][1]]))) < .335/2 + minDist):
                 return True
         return False

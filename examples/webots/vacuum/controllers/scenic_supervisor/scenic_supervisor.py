@@ -23,6 +23,11 @@ import yaml
 with open("../../../../../config.yaml") as f:
     raw = yaml.safe_load(f)
 
+def adjust_clip_range(current_total_coverage_sum: float) -> float:
+    input_val = -0.26 * current_total_coverage_sum + 5.2
+    # input_val = -0.03 * current_total_coverage_sum + 1
+    return input_val
+
 start = time.time()
 
 supervisor = Supervisor() # Collect the Supervisor node from the simulation
@@ -40,8 +45,8 @@ action_space = gym.spaces.Box(low=-1.0, high=1.0 ,shape=(2,))  # Defines the pos
 array_size = 1 #find in simulator.py by ctrl f'ing array_size
 observation_space = gym.spaces.Dict({
     "velocity": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
-    "sensor": gym.spaces.Box(low=np.array([0,0,0,0,0,0,0]), high=np.array([1,1,1,1,1,1,1]),shape=(7,),dtype=np.float64), # defines the range of observations of the agent
-    "position": gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), shape=(2,),dtype=np.float64),
+    "position": gym.spaces.Box(low=np.array([-2.6, -2.6]), high=np.array([2.6, 2.6]), shape=(2,),dtype=np.float64),
+    "lidar": gym.spaces.Box(low=0.25, high=5.2, shape=(32,), dtype=np.float64),
     "rotation": gym.spaces.Box(low=np.array([-1,-1,-1,-1]), high=np.array([1,1,1,1]), shape=(4,), dtype=np.float64)
 })
 max_steps = raw["supervisor"]["max_steps"]
@@ -68,7 +73,7 @@ if(raw["supervisor"]["is_training"]):
     model.save(raw["supervisor"]["model_name"])            # Save the model after training
 
 if(not raw["supervisor"]["is_training"]):
-    mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False, deterministic=False)
+    mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=5,render=False, deterministic=False)
     print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 env.env.logScores()

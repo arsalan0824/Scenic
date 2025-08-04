@@ -4,7 +4,7 @@ from scenic.core.errors import setDebuggingOptions
 import gymnasium as gym
 from gymnasium import spaces
 from typing import Callable
-
+from collections import deque
 import random
 import numpy as np
 
@@ -125,6 +125,10 @@ class ScenicGymEnv(gym.Env):
         self.episode_rewards = []
         self.timewise_points = None
 
+        self.last_10_episode_coverages = deque(maxlen=10)
+        self.total_episodes_completed = 0
+        self.current_total_coverage_sum = 0
+
     def _make_run_loop(self):
         while True:
             try:
@@ -159,58 +163,81 @@ class ScenicGymEnv(gym.Env):
                     print(f"Sampling new scene with index {self.working_index}")
                 
                 self.counting_reward = 0
+#---------------------------------------------
+                scene, _ = self.scenario.generate(feedback=self.feedback_result)
+                #make a variable so self.current_total_coverage_sum is accessible in simulator.py
+                
                 with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
                     self.steps_taken = 0
-                    # this first block before the while loop is for the first reset call
-                    done = lambda: not (simulation.result is None) or (simulation.get_truncation() and self.truncate) # allows for early truncation
-                    truncated = lambda: (self.steps_taken >= self.max_steps)  # TODO handle cases where it is done right on maxsteps
+
+                    simulation.current_total_coverage_sum = self.current_total_coverage_sum
+                    steps_taken = 0
+                    done_episode = lambda: not (simulation.result is None) or (simulation.get_truncation())
+                    truncated_episode = lambda: (steps_taken >= self.max_steps)
+
                     observation = simulation.get_obs()
-                    info = simulation.get_info() 
-                    actions = yield observation, info
+                    initial_info = {}
+                    actions = yield observation, initial_info
                     simulation.actions = actions # TODO add action dict to simulation interfaces
-                    while not done():
-                        # Probably good that we advance first before any action is set.
-                        # this is consistent with how reset works
-                        simulation.advance()
-                        self.steps_taken += 1
-                        self.total_steps_taken += 1
-                        observation = simulation.get_obs()
-                        info = simulation.get_info()
+
+                    while not done_episode():
+                        simulation.actions = actions
                         reward = simulation.get_reward()
-                        self.counting_reward += reward
-                        if simulation.covered_spaces != None and simulation.coverage_timesteps != None:
-                            self.timewise_points = list(zip(simulation.coverage_timesteps, simulation.covered_spaces))
-                        if done():
-                            if simulation.result is None:
-                                simulation.terminateSimulation(TerminationType.terminatedByUser, "early truncation")
-                            print("Simulation done")
-                            if self.record_points:
-                                write_point_records(self.run_name, self.timewise_points)
-                            self.logScores()
-                            if not self.use_verifai:
-                                self.feedback_result = self.feedback_fn(simulation.result)
+
+                        simulation.advance()
+                        steps_taken += 1
+
+                        observation = simulation.get_obs()
+                        current_info = simulation.get_info()
+                        # current_info.update(step_info)
+
+                        if done_episode() or truncated_episode():
+                            _, coverage_ratio = simulation.get_coverage_metric()
+                            self.last_10_episode_coverages.append(coverage_ratio)
+
+                            self.total_episodes_completed += 1
+                            self.current_total_coverage_sum = np.sum(self.last_10_episode_coverages)
+
+                            # Condition for printing episode coverage summary and updating feedback
+                            if self.current_total_coverage_sum > 5:
+                                print ("lidar has passed 50%, clipping range will be adjusted")
+                                # Print episode coverage summary
+                                print(f"Episode {self.total_episodes_completed}: "
+                                      f"Sum of last {len(self.last_10_episode_coverages)} "
+                                      f"episode coverages: {self.current_total_coverage_sum:.5f}")
+
+                                # Call feedback_fn to get the new clip range value
+                                if self.feedback_fn is not None:
+                                    self.feedback_result = self.feedback_fn(self.current_total_coverage_sum)
+                                    # Print the new lidar max range directly from here
+                                    print(f"new LIDAR max range is: {self.feedback_result:.3f} meters")
+                            # For episodes NOT divisible by 10, ensure feedback_result is still set
+                            # for subsequent scenario generations if it hasn't been yet.
+                            elif self.feedback_fn is not None and self.feedback_result is None:
+                                self.feedback_result = self.feedback_fn(self.current_total_coverage_sum)
+                            else:
+                                print("Feedback function is None, no new clip range set.")
+
                             if self.record_scenic_sim_results:
                                 self.simulation_results.append(simulation.result)
-                            # simulation.destroy() # FIXME...might redundant?
-                            actions = yield observation, reward, done(), truncated(), info
-                            
-                            break # a little unclean right here
 
-                        actions = yield observation, reward, done(), done(), info
-                        simulation.actions = actions # TODO add action dict to simulation interfaces
-                    print("Exitedwhile loop")
+                            actions = yield observation, reward, done_episode(), truncated_episode(), current_info
+                            break
+
+                        actions = yield observation, reward, done_episode(), truncated_episode(), current_info
+
             except ResetException:
                 if self.total_steps_taken >= self.total_steps and self.save_to_csv:
-                    write_csv(self.run_name, self.episode_coverages, self.episode_collisions, self.episode_discrete_collisions, self.episode_rewards)
+                    write_csv(self.run_name, self.episode_coverages, self.episode_collisions, self.episode_rewards)
                 print("reset exception caught")
                 print(f"Episode coverages: {self.episode_coverages}")
                 print(f"Mean and std of coverages: {np.mean(self.episode_coverages)} and {np.std(self.episode_coverages)}")
                 print(f"Episode collisions: {self.episode_collisions}")
                 print(f"Mean and std of collisions: {np.mean(self.episode_collisions)} and {np.std(self.episode_collisions)}")
-                print(f"Episode discrete collisions: {self.episode_discrete_collisions}")
-                print(f"Mean and std of discrete collisions: {np.mean(self.episode_discrete_collisions)} and {np.std(self.episode_discrete_collisions)}")
-                print(f"Excel splittable: {np.mean(self.episode_coverages)},{np.std(self.episode_coverages)},{np.mean(self.episode_collisions)},{np.std(self.episode_collisions)},{np.mean(self.episode_discrete_collisions)},{np.std(self.episode_discrete_collisions)}")
+                print(f"Excel splittable: {np.mean(self.episode_coverages)},{np.std(self.episode_coverages)},{np.mean(self.episode_collisions)},{np.std(self.episode_collisions)}")
+
                 continue
+
 
     def reset(self, seed=None, options=None): # TODO will setting seed here conflict with VerifAI's setting of seed?
         # only setting enviornment seed, not torch seed?
@@ -229,7 +256,7 @@ class ScenicGymEnv(gym.Env):
         assert not (self.loop is None), "self.loop is None, have you called reset()?"
 
         observation, reward, terminated, truncated, info = self.loop.send(action)
-        
+
         if terminated or truncated:
             self.episode_coverages.append(info.get("coverage", 0))
             self.episode_collisions.append(info.get("collisions", 0))

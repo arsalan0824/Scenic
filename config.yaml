@@ -5,10 +5,10 @@ scenic:
   is_hard: True
 
 supervisor:
-  base_model: "7_19 - Corrected Penalty 50 + 50 Resampling.zip"
+  base_model: "PPO_vacuum_agent_latest_arsalan_trainedbykay.zip"
   model_name: "hi"
   max_steps: 10000
-  episodes: 50
+  episodes: 5
   is_training: True
 
 simulator:
