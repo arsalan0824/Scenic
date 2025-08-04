@@ -110,7 +110,7 @@ def distanceToLine(point, a, b):
 
 
 # Fastest known way to make a Shapely Point from a list/tuple/Vector
-makeShapelyPoint = shapely.points
+makeShapelyPoint = shapely.lib.points
 
 
 def polygonUnion(polys, buf=0, tolerance=0, holeTolerance=0.002):

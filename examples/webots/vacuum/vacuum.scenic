@@ -1,6 +1,8 @@
+#ethan's code + arsalan
 """
 Generate a room for the i-roomba create vacuum
 """
+from scenic.core.external_params import VerifaiRange
 from scenic.core.external_params import VerifaiRange
 
 from vacuum_lib import *
@@ -32,7 +34,13 @@ if no_verifai:
     # Place vacuum on floor
     ego = new Vacuum on floor
     record (ego.x, ego.y, ego.z) as EgoPosition
+if no_verifai:
+    # Place vacuum on floor
+    ego = new Vacuum on floor
+    record (ego.x, ego.y, ego.z) as EgoPosition
 
+    # Create a "safe zone" around the vacuum so that it does not start stuck
+    safe_zone = CircularRegion(ego.position, radius=1)
     # Create a "safe zone" around the vacuum so that it does not start stuck
     safe_zone = CircularRegion(ego.position, radius=1)
 

@@ -5,6 +5,7 @@ import gymnasium as gym
 from gymnasium import spaces
 from typing import Callable
 from collections import deque
+<<<<<<< HEAD
 import random
 import numpy as np
 
@@ -32,34 +33,53 @@ def write_point_records(name, episode, timewise_points):
     rows = [f"Episode_{episode}"] + list(timewise_points)
     df = pd.DataFrame(rows)
     df.to_csv(f"{point_file_path}{name}_points.csv", index=False, mode='a',header=False)
+=======
+import numpy as np
+
+# A custom exception to handle resets within the generator loop
+import gymnasium as gym
+# Custom exception class
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262
 class ResetException(Exception):
     def __init__(self):
         super().__init__("Resetting")
 
 class ScenicGymEnv(gym.Env):
+<<<<<<< HEAD
     """
     verifai_sampler now not an argument added in here, but one specified int he Scenic program
     """
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4} # TODO placeholder, add simulator-specific entries
     
     def __init__(self, 
+=======
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
+
+    def __init__(self,
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262
                  scenario : Scenario,
                  simulator : Simulator,
-                 render_mode=None, 
+                 render_mode=None,
                  max_steps = 1000,
                  observation_space : spaces.Dict = spaces.Dict(),
                  action_space : spaces.Dict = spaces.Dict(),
                  record_scenic_sim_results : bool = True,
+<<<<<<< HEAD
                  feedback_fn : callable = lambda x: x,
                  raw = None
                  ): # empty string means just pure scenic???
+=======
+                 feedback_fn : Callable = lambda x: x):
+
+        super().__init__()
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
 
         self.observation_space = observation_space
         self.action_space = action_space
         self.render_mode = render_mode
-        self.max_steps = max_steps - 1 # FIXME, what was this about again?
+        self.max_steps = max_steps - 1
         self.simulator = simulator
         self.scenario = scenario
         self.simulation_results = []
@@ -128,6 +148,7 @@ class ScenicGymEnv(gym.Env):
         self.total_episodes_completed = 0
         self.current_total_coverage_sum = 0
 
+<<<<<<< HEAD
     def _make_run_loop(self):
         while True:
             try:
@@ -163,12 +184,25 @@ class ScenicGymEnv(gym.Env):
                 
                 self.counting_reward = 0
 #---------------------------------------------
+=======
+        self.last_10_episode_coverages = deque(maxlen=10)
+        self.total_episodes_completed = 0
+        self.current_total_coverage_sum = 0
+
+    def _make_run_loop(self):
+        while True:
+            try:
+                # The feedback_result (new_clip_range) is passed to scenario generation
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262
                 scene, _ = self.scenario.generate(feedback=self.feedback_result)
                 #make a variable so self.current_total_coverage_sum is accessible in simulator.py
                 
                 with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
+<<<<<<< HEAD
                     self.steps_taken = 0
 
+=======
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262
                     simulation.current_total_coverage_sum = self.current_total_coverage_sum
                     steps_taken = 0
                     done_episode = lambda: not (simulation.result is None) or (simulation.get_truncation())
@@ -177,6 +211,7 @@ class ScenicGymEnv(gym.Env):
                     observation = simulation.get_obs()
                     initial_info = {}
                     actions = yield observation, initial_info
+<<<<<<< HEAD
                     simulation.actions = actions # TODO add action dict to simulation interfaces
 
                     while not done_episode():
@@ -184,12 +219,23 @@ class ScenicGymEnv(gym.Env):
                         reward = simulation.get_reward()
 <<<<<<< HEAD
 
+=======
+
+                    while not done_episode():
+                        simulation.actions = actions
+                        reward, step_info = simulation.get_reward()
+
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262
                         simulation.advance()
                         steps_taken += 1
 
                         observation = simulation.get_obs()
                         current_info = simulation.get_info()
+<<<<<<< HEAD
                         # current_info.update(step_info)
+=======
+                        current_info.update(step_info)
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262
 
                         if done_episode() or truncated_episode():
                             _, coverage_ratio = simulation.get_coverage_metric()
@@ -218,6 +264,7 @@ class ScenicGymEnv(gym.Env):
                             else:
                                 print("Feedback function is None, no new clip range set.")
 
+<<<<<<< HEAD
 =======
                         self.counting_reward += reward
                         if simulation.covered_spaces != None and simulation.coverage_timesteps != None:
@@ -232,6 +279,8 @@ class ScenicGymEnv(gym.Env):
                             if not self.use_verifai:
                                 self.feedback_result = self.feedback_fn(simulation.result)
 >>>>>>> 106255edbe5a7bc1d1d44ef15feacdd6906d548e
+=======
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262
                             if self.record_scenic_sim_results:
                                 self.simulation_results.append(simulation.result)
 
@@ -252,23 +301,27 @@ class ScenicGymEnv(gym.Env):
 
                 continue
 
+<<<<<<< HEAD
 
     def reset(self, seed=None, options=None): # TODO will setting seed here conflict with VerifAI's setting of seed?
         # only setting enviornment seed, not torch seed?
+=======
+    def reset(self, seed=None, options=None):
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262
         super().reset(seed=seed)
+
         if self.loop is None:
             print("self loop doesnt exist, creating new one")
             self.loop = self._make_run_loop()
-            observation, info = next(self.loop) # not doing self.scene.send(action) just yet
+            observation, info = next(self.loop)
         else:
             observation, info = self.loop.throw(ResetException())
 
 
         return observation, info
-        
-    def step(self, action):
-        assert not (self.loop is None), "self.loop is None, have you called reset()?"
 
+    def step(self, action):
+        assert self.loop is not None, "self.loop is None, have you called reset()?"
         observation, reward, terminated, truncated, info = self.loop.send(action)
 
         if terminated or truncated:
@@ -282,15 +335,11 @@ class ScenicGymEnv(gym.Env):
     def get_coverage(self):
         return sum(self.episode_coverages) / len(self.episode_coverages) if self.episode_coverages else 0 
 
-    def render(self): # TODO figure out if this function has to be implemented here or if super() has default implementation
-        """
-        likely just going to be something like simulation.render() or something
-        """
-        # FIXME for one project only...also a bit hacky...
-        # self.env.render()
+    def render(self):
         pass
 
     def close(self):
+<<<<<<< HEAD
         self.simulator.destroy()
         
     def logScores(self):
@@ -336,3 +385,11 @@ class ScenicGymEnv(gym.Env):
                 if(self.steps_taken <= 50):
                     inverse_reward = 0
                 self.resampling_weights = np.append(self.resampling_weights, inverse_reward)
+=======
+        if self.loop is not None:
+            try:
+                self.loop.close()
+            except StopIteration:
+                pass
+            self.loop = None
+>>>>>>> 7b501837c807f7103112879c6ccb70e620882262

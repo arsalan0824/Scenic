@@ -11,6 +11,7 @@ import random
 
 param numToys = 0
 param duration = 10
+param clip_range = 0
 
 
 class Vacuum(WebotsObject):
@@ -103,3 +104,4 @@ class Toy(WebotsObject):
 
 class BlockToy(Toy):
     shape: BoxShape()
+

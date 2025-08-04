@@ -26,6 +26,8 @@ Robot {
     }
 
     Shape { 
+
+    Shape { 
       appearance DEF CREATE_APPEARANCE PBRAppearance {
         metalness 0
         roughness 0.2
@@ -455,6 +457,7 @@ Robot {
       type "infra-red"
       channel 1
     }
+
 
     DEF CREATE_LED_ON LED {
       translation 0.0202 0.0617 0.0349

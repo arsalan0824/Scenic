@@ -1,4 +1,5 @@
-"""Interface to Webots for dynamic simulations.
+"""ethan + arsalan simulator.py
+Interface to Webots for dynamic simulations.
 
 This interface is intended to be instantiated from inside the controller script
 of a Webots `Robot node`_ with the ``supervisor`` field set to true. Such a
@@ -54,6 +55,10 @@ class WebotsSimulator(Simulator):
     current_simulation = None
     last_avg_return = None
     
+    episode_count = 0
+    current_simulation = None
+    last_avg_return = None
+    
     def __init__(self, supervisor):
         super().__init__()
         self.supervisor = supervisor
@@ -68,7 +73,19 @@ class WebotsSimulator(Simulator):
             raise RuntimeError("Webots world does not contain a WorldInfo node")
         system = worldInfo.getField("coordinateSystem").getSFString()
         self.coordinateSystem = WebotsCoordinateSystem(system)
+        print("testing output")
 
+    def createSimulation(self, scene, lidar_max_range=None, **kwargs): #accept lidar_max_range
+            self.episode_count += 1
+            self.current_simulation = WebotsSimulation(
+                scene,
+                self.supervisor,
+                coordinateSystem=self.coordinateSystem,
+                parent_simulator=self,
+                # lidar_max_range=lidar_max_range, #Pass it to WebotsSimulation
+                **kwargs
+            )
+            return self.current_simulation
     def createSimulation(self, scene, lidar_max_range=None, **kwargs): #accept lidar_max_range
             self.episode_count += 1
             self.current_simulation = WebotsSimulation(
@@ -131,6 +148,7 @@ class WebotsSimulation(Simulation):
         self.supervisor_node = self.supervisor.getSelf()
 
         #device inputs
+        #device inputs
         self.left_motor = self.supervisor.getDevice("right wheel motor")
         self.right_motor = self.supervisor.getDevice("left wheel motor")
 
@@ -176,6 +194,7 @@ class WebotsSimulation(Simulation):
         super().setup()
         # Reset Webots simulation
         self.supervisor.simulationResetPhysics()
+        self.compute_total_tiles()
         self.compute_total_tiles()
 
 
@@ -336,6 +355,10 @@ class WebotsSimulation(Simulation):
 
         self.total_steps += 1
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
+        rot = np.array(self.supervisor_node.getField("rotation").getSFVec2f(), dtype=np.float32)
+
+        self.total_steps += 1
+        pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity)
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
         #if episode is under 10 input_val=2.6, else input_val=100- self.current_total_coverage_sum
         #self.current_total_coverage_sum max assuming 100% acorss 10 episodes is 10
@@ -418,6 +441,32 @@ class WebotsSimulation(Simulation):
             mesh_in_world.apply_transform(T)
             self.prox_checks.append(ProximityQuery(mesh_in_world))
             self.spheres.append([obj.position] + [mesh_in_world.bounding_sphere.primitive.radius])
+        self.time_elapsed += self.timestep
+        covered_count, coverage_ratio = self.get_coverage_metric()
+        if coverage_ratio > self.best_coverage[1]:
+            self.best_coverage = covered_count, coverage_ratio
+        
+    def getObjects(self):
+        for obj in self.objects:
+            if "floor" in str(obj).lower() or "vacuum" in str(obj).lower():
+                continue
+            x, y, z = obj.position
+            yaw = obj.heading
+            c, s = math.cos(yaw), math.sin(yaw)
+            # 4×4 yaw+translate
+            T = np.array([
+                [ c, -s, 0, x],
+                [ s,  c, 0, y],
+                [ 0,  0, 1, z],
+                [ 0,  0, 0, 1]
+            ])
+            base = obj.shape._mesh                     
+            dims = (obj.width, obj.length, obj.height)  
+            mesh = MeshVolumeRegion(mesh=base, dimensions=dims).mesh
+            mesh_in_world = mesh.copy()
+            mesh_in_world.apply_transform(T)
+            self.prox_checks.append(ProximityQuery(mesh_in_world))
+            self.spheres.append([obj.position] + [mesh_in_world.bounding_sphere.primitive.radius])
 
     def init_step(self):
         """
@@ -429,6 +478,7 @@ class WebotsSimulation(Simulation):
         self.sensor_front_left.enable(self.ms)
         self.sensor_left.enable(self.ms)
         self.LIDAR.enable(self.ms)
+        self.LIDAR.enable(self.ms)
 
 
         self.sensor_back.enable(self.ms)
@@ -436,10 +486,16 @@ class WebotsSimulation(Simulation):
         self.sensor_actual_left.enable(self.ms)
         self.sensor_actual_right.enable(self.ms)
 
+        self.sensor_actual_left.enable(self.ms)
+        self.sensor_actual_right.enable(self.ms)
+
         self.supervisor.step(self.ms) # Need to step the simulation once after initializing the sensors!
         pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
         self.pos = pos # initialize the position
+        pos = self.granularity * np.round(np.array(self.supervisor_node.getPosition()[:2]) / self.granularity) #need to verify
+        self.pos = pos # initialize the position
         self.enable_sensors = True
+        self.getObjects()
         self.getObjects()
 
 
@@ -699,6 +755,7 @@ class WebotsSimulation(Simulation):
             if node is not None: # ensure that the node actually exisits in the simulation before destroying it
                 node.remove()
             self.supervisor.step(self.ms) # TODO this fixe crashing error on repeated reset calls! I DO NOT KNOW WHY.... temp fix, need to figure out underlying cause
+            self.supervisor.step(self.ms) # TODO this fixe crashing error on repeated reset calls! I DO NOT KNOW WHY.... temp fix, need to figure out underlying cause
     def _getAdhocObjectName(self, i: int) -> str:
         return f"SCENIC_ADHOC_{i}"
     
@@ -859,4 +916,3 @@ def isPhysicsEnabled(webotsObject):
     if isinstance(webotsObject.webotsAdhoc, dict):
         return webotsObject.webotsAdhoc.get("physics", True)
     raise TypeError(f"webotsAdhoc must be None or a dictionary")
-

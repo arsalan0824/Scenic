@@ -1,6 +1,16 @@
+import sys
+import os
+
+try:
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    scenic_src_path = os.path.normpath(os.path.join(current_script_dir, '..', '..', '..', '..', 'src'))
+    if scenic_src_path not in sys.path:
+        sys.path.insert(0, scenic_src_path)
+except Exception as e:
+    print(f"Warning: Could not add Scenic src to path. Error: {e}")
+
 from scenic.gym import ScenicGymEnv
 import scenic
-from scenic.simulators.newtonian_gym import NewtonianSimulator
 from scenic.simulators.webots import WebotsSimulator
 
 import gymnasium as gym
@@ -33,7 +43,9 @@ start = time.time()
 supervisor = Supervisor() # Collect the Supervisor node from the simulation
 simulator = WebotsSimulator(supervisor) # Create an instance of the WebotsSImulator with the corresponding node
 
-
+supervisor = Supervisor()
+simulator = WebotsSimulator(supervisor)
+print("Webots simulator initialized.")
 prefix = scenic.__file__[:-22]
 scenario = scenic.scenarioFromFile(prefix +  "examples/webots/vacuum/vacuum.scenic",
                                 model="scenic.simulators.webots.model",
