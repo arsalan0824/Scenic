@@ -28,8 +28,8 @@ def write_csv(name, coverage, collisions, discrete_collisions, rewards):
     df = pd.DataFrame(rows)
     df.to_csv(file_path, index=False, mode='a', header=False)
     
-def write_point_records(name, timewise_points):
-    rows = list(timewise_points)
+def write_point_records(name, episode, timewise_points):
+    rows = [f"Episode_{episode}"] + list(timewise_points)
     df = pd.DataFrame(rows)
     df.to_csv(f"{point_file_path}{name}_points.csv", index=False, mode='a',header=False)
 class ResetException(Exception):
@@ -94,11 +94,10 @@ class ScenicGymEnv(gym.Env):
             self.save_to_csv = False 
             self.record_points = False
             
-        if(self.use_plr):
-            self.buffer_path = f"{base_buffer_path}{self.run_name}_buffer"
-            os.makedirs(self.buffer_path, exist_ok=True)
+        self.buffer_path = f"{base_buffer_path}{self.run_name}_buffer"
+        os.makedirs(self.buffer_path, exist_ok=True)
             
-        if(self.training_method == "Random"):
+        if(self.training_method == "EL"):
             self.truncate = True
         
         #load arrays
@@ -183,6 +182,7 @@ class ScenicGymEnv(gym.Env):
                     while not done_episode():
                         simulation.actions = actions
                         reward = simulation.get_reward()
+<<<<<<< HEAD
 
                         simulation.advance()
                         steps_taken += 1
@@ -218,6 +218,20 @@ class ScenicGymEnv(gym.Env):
                             else:
                                 print("Feedback function is None, no new clip range set.")
 
+=======
+                        self.counting_reward += reward
+                        if simulation.covered_spaces != None and simulation.coverage_timesteps != None:
+                            self.timewise_points = list(zip(simulation.coverage_timesteps, simulation.covered_spaces))
+                        if done():
+                            if simulation.result is None:
+                                simulation.terminateSimulation(TerminationType.terminatedByUser, "early truncation")
+                            print("Simulation done")
+                            if self.record_points:
+                                write_point_records(self.run_name, len(self.episode_collisions) + 1, self.timewise_points)
+                            self.logScores()
+                            if not self.use_verifai:
+                                self.feedback_result = self.feedback_fn(simulation.result)
+>>>>>>> 106255edbe5a7bc1d1d44ef15feacdd6906d548e
                             if self.record_scenic_sim_results:
                                 self.simulation_results.append(simulation.result)
 
@@ -281,6 +295,8 @@ class ScenicGymEnv(gym.Env):
         
     def logScores(self):
         if self.training_method == "Random":
+            return
+        if self.training_method != "EL" and self.training_method != "LP":
             return
         total_reward = self.counting_reward
         if(total_reward == 0):

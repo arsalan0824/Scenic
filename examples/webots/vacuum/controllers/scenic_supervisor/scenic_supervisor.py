@@ -77,6 +77,7 @@ if(not raw["supervisor"]["is_training"]):
     print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 env.env.logScores()
+env.close()
 
 episodic_rewards = env.get_episode_rewards()
 print(episodic_rewards)
@@ -92,7 +93,8 @@ ax.stem(range(len(episodic_rewards)), episodic_rewards)
 
 file_name = "PPO_policy" + str(total_timesteps)  + ".png"
 plt.savefig(file_name,format='png')
-plt.show()
+if not raw["supervisor"]["is_training"]:
+    plt.show()
 
 
 end = time.time()
