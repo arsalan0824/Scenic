@@ -357,7 +357,7 @@ class WebotsSimulation(Simulation):
         #-----------------------------------------------------------------------
         # # #print episode
         # print(f"Episode number: {episodes}")
-        ##print lidar values, not normalized
+        ##print lidar values, not normalized-
         #print(f"LIDAR values: {raw_lidar}") #print lidar values for debugging
         # #print sum of covered spaces last 10 episodes
         #print (f"sum of last 10 episodes {self.current_total_coverage_sum:.5f}")
