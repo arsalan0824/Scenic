@@ -676,7 +676,7 @@ class WebotsSimulation(Simulation):
         ax.grid(True)
         
 
-        if episodes % 2 == 0:
+        if episodes % 10 == 0:
             save_dir = os.path.join(os.getcwd(), "heatmaps") 
             os.makedirs(save_dir, exist_ok=True)
 
@@ -693,7 +693,7 @@ class WebotsSimulation(Simulation):
     def destroy(self):
         global episodes
         episodes += 1
-        if episodes % 2 == 0:
+        if episodes % 10 == 0:
             self.create_heatmap(self.covered_spaces)
         print(f"Episode number: {episodes}")
         #print(f"This is the metric: {self.metric()}")
