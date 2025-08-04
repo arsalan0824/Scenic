@@ -28,8 +28,8 @@ def write_csv(name, coverage, collisions, discrete_collisions, rewards):
     df = pd.DataFrame(rows)
     df.to_csv(file_path, index=False, mode='a', header=False)
     
-def write_point_records(name, episode, timewise_points):
-    rows = [f"Episode_{episode}"] + list(timewise_points)
+def write_point_records(name, timewise_points):
+    rows = list(timewise_points)
     df = pd.DataFrame(rows)
     df.to_csv(f"{point_file_path}{name}_points.csv", index=False, mode='a',header=False)
 class ResetException(Exception):
@@ -45,7 +45,7 @@ class ScenicGymEnv(gym.Env):
     def __init__(self, 
                  scenario : Scenario,
                  simulator : Simulator,
-                 render_mode=None,
+                 render_mode=None, 
                  max_steps = 1000,
                  observation_space : spaces.Dict = spaces.Dict(),
                  action_space : spaces.Dict = spaces.Dict(),
@@ -59,7 +59,7 @@ class ScenicGymEnv(gym.Env):
         self.observation_space = observation_space
         self.action_space = action_space
         self.render_mode = render_mode
-        self.max_steps = max_steps - 1
+        self.max_steps = max_steps - 1 # FIXME, what was this about again?
         self.simulator = simulator
         self.scenario = scenario
         self.simulation_results = []
@@ -94,10 +94,11 @@ class ScenicGymEnv(gym.Env):
             self.save_to_csv = False 
             self.record_points = False
             
-        self.buffer_path = f"{base_buffer_path}{self.run_name}_buffer"
-        os.makedirs(self.buffer_path, exist_ok=True)
+        if(self.use_plr):
+            self.buffer_path = f"{base_buffer_path}{self.run_name}_buffer"
+            os.makedirs(self.buffer_path, exist_ok=True)
             
-        if(self.training_method == "EL"):
+        if(self.training_method == "Random"):
             self.truncate = True
         
         #load arrays
@@ -166,16 +167,11 @@ class ScenicGymEnv(gym.Env):
                 scene, _ = self.scenario.generate(feedback=self.feedback_result)
                 #make a variable so self.current_total_coverage_sum is accessible in simulator.py
                 
-                #make a variable so self.current_total_coverage_sum is accessible in simulator.py
-                
                 with self.simulator.simulateStepped(scene, maxSteps=self.max_steps) as simulation:
                     self.steps_taken = 0
 
                     simulation.current_total_coverage_sum = self.current_total_coverage_sum
                     steps_taken = 0
-                    done_episode = lambda: not (simulation.result is None) or (simulation.get_truncation())
-                    truncated_episode = lambda: (steps_taken >= self.max_steps)
-
                     done_episode = lambda: not (simulation.result is None) or (simulation.get_truncation())
                     truncated_episode = lambda: (steps_taken >= self.max_steps)
 
@@ -190,7 +186,6 @@ class ScenicGymEnv(gym.Env):
 
                         simulation.advance()
                         steps_taken += 1
-
 
                         observation = simulation.get_obs()
                         current_info = simulation.get_info()
@@ -229,11 +224,6 @@ class ScenicGymEnv(gym.Env):
                             actions = yield observation, reward, done_episode(), truncated_episode(), current_info
                             break
 
-                            actions = yield observation, reward, done_episode(), truncated_episode(), current_info
-                            break
-
-                        actions = yield observation, reward, done_episode(), truncated_episode(), current_info
-
                         actions = yield observation, reward, done_episode(), truncated_episode(), current_info
 
             except ResetException:
@@ -252,19 +242,19 @@ class ScenicGymEnv(gym.Env):
     def reset(self, seed=None, options=None): # TODO will setting seed here conflict with VerifAI's setting of seed?
         # only setting enviornment seed, not torch seed?
         super().reset(seed=seed)
-
         if self.loop is None:
             print("self loop doesnt exist, creating new one")
             self.loop = self._make_run_loop()
-            observation, info = next(self.loop)
+            observation, info = next(self.loop) # not doing self.scene.send(action) just yet
         else:
             observation, info = self.loop.throw(ResetException())
 
 
         return observation, info
-
+        
     def step(self, action):
-        assert self.loop is not None, "self.loop is None, have you called reset()?"
+        assert not (self.loop is None), "self.loop is None, have you called reset()?"
+
         observation, reward, terminated, truncated, info = self.loop.send(action)
 
         if terminated or truncated:
@@ -291,8 +281,6 @@ class ScenicGymEnv(gym.Env):
         
     def logScores(self):
         if self.training_method == "Random":
-            return
-        if self.training_method != "EL" and self.training_method != "LP":
             return
         total_reward = self.counting_reward
         if(total_reward == 0):

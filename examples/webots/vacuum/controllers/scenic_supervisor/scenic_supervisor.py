@@ -1,16 +1,6 @@
-import sys
-import os
-
-try:
-    current_script_dir = os.path.dirname(os.path.abspath(__file__))
-    scenic_src_path = os.path.normpath(os.path.join(current_script_dir, '..', '..', '..', '..', 'src'))
-    if scenic_src_path not in sys.path:
-        sys.path.insert(0, scenic_src_path)
-except Exception as e:
-    print(f"Warning: Could not add Scenic src to path. Error: {e}")
-
 from scenic.gym import ScenicGymEnv
 import scenic
+from scenic.simulators.newtonian_gym import NewtonianSimulator
 from scenic.simulators.webots import WebotsSimulator
 
 import gymnasium as gym
@@ -29,23 +19,27 @@ from stable_baselines3.common.evaluation import evaluate_policy
 import matplotlib.pyplot as plt
 import time
 
-import yaml
-with open("../../../../../config.yaml") as f:
-    raw = yaml.safe_load(f)
+import matplotlib.pyplot as plt
+import time
+import gc
+from collections import deque
 
 def adjust_clip_range(current_total_coverage_sum: float) -> float:
     input_val = -0.26 * current_total_coverage_sum + 5.2
     # input_val = -0.03 * current_total_coverage_sum + 1
     return input_val
 
+import yaml
+
+with open("../../../../../config.yaml") as f:
+    raw = yaml.safe_load(f)
+
 start = time.time()
 
 supervisor = Supervisor() # Collect the Supervisor node from the simulation
 simulator = WebotsSimulator(supervisor) # Create an instance of the WebotsSImulator with the corresponding node
 
-supervisor = Supervisor()
-simulator = WebotsSimulator(supervisor)
-print("Webots simulator initialized.")
+
 prefix = scenic.__file__[:-22]
 scenario = scenic.scenarioFromFile(prefix +  "examples/webots/vacuum/vacuum.scenic",
                                 model="scenic.simulators.webots.model",
@@ -61,6 +55,7 @@ observation_space = gym.spaces.Dict({
     "lidar": gym.spaces.Box(low=0.25, high=5.2, shape=(32,), dtype=np.float64),
     "rotation": gym.spaces.Box(low=np.array([-1,-1,-1,-1]), high=np.array([1,1,1,1]), shape=(4,), dtype=np.float64)
 })
+
 max_steps = raw["supervisor"]["max_steps"]
 env = ScenicGymEnv(scenario, 
                 simulator, 
@@ -85,7 +80,7 @@ if(raw["supervisor"]["is_training"]):
     model.save(raw["supervisor"]["model_name"])            # Save the model after training
 
 if(not raw["supervisor"]["is_training"]):
-    mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=5,render=False, deterministic=False)
+    mean_rwd, std_reward = evaluate_policy(model, env, n_eval_episodes=10,render=False, deterministic=False)
     print(f"After evaluation mean reward was : {mean_rwd} with std: {std_reward}")
 
 env.env.logScores()
@@ -112,5 +107,3 @@ if not raw["supervisor"]["is_training"]:
 end = time.time()
 
 print(f" training time was {(end - start) / 60} minutes for {total_timesteps} timesteps")
-
-
