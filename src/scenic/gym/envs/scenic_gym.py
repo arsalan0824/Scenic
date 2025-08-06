@@ -205,19 +205,6 @@ class ScenicGymEnv(gym.Env):
                                 print(f"Episode {self.total_episodes_completed}: "
                                       f"Sum of last {len(self.last_10_episode_coverages)} "
                                       f"episode coverages: {self.current_total_coverage_sum:.5f}")
-
-                                # Call feedback_fn to get the new clip range value
-                                if self.feedback_fn is not None:
-                                    self.feedback_result = self.feedback_fn(self.current_total_coverage_sum)
-                                    # Print the new lidar max range directly from here
-                                    print(f"new LIDAR max range is: {self.feedback_result:.3f} meters")
-                            # For episodes NOT divisible by 10, ensure feedback_result is still set
-                            # for subsequent scenario generations if it hasn't been yet.
-                            elif self.feedback_fn is not None and self.feedback_result is None:
-                                self.feedback_result = self.feedback_fn(self.current_total_coverage_sum)
-                            else:
-                                print("Feedback function is None, no new clip range set.")
-
                             if self.record_scenic_sim_results:
                                 self.simulation_results.append(simulation.result)
 

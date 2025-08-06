@@ -340,16 +340,13 @@ class WebotsSimulation(Simulation):
         # TODO Normalize observation space, docmumnet sensor value ranges, and signals for crashing etc...
         #if episode is under 10 input_val=2.6, else input_val=100- self.current_total_coverage_sum
         #self.current_total_coverage_sum max assuming 100% acorss 10 episodes is 10
+        print(f"current total coverage sum is {self.current_total_coverage_sum}")
+        
         input_val = -0.26 * self.current_total_coverage_sum + 5.2
-        # input_val = -0.03 * self.current_total_coverage_sum + 1
         if self.current_total_coverage_sum < 5:
             input_val = 5.2
-            # input_val = 1
         else:
             input_val = -0.26 * self.current_total_coverage_sum + 5.2
-            # input_val = -0.03 * self.current_total_coverage_sum + 1
-
-
         raw_lidar = np.array(self.LIDAR.getRangeImage(), dtype=np.float64)
         raw_lidar = np.nan_to_num(raw_lidar, nan=input_val, posinf=input_val, neginf=0.25)
         #max value is input_val, min value is 0.25
@@ -676,7 +673,7 @@ class WebotsSimulation(Simulation):
         ax.grid(True)
         
 
-        if episodes % 10 == 0:
+        if episodes % 1 == 0:
             save_dir = os.path.join(os.getcwd(), "heatmaps") 
             os.makedirs(save_dir, exist_ok=True)
 
@@ -693,7 +690,7 @@ class WebotsSimulation(Simulation):
     def destroy(self):
         global episodes
         episodes += 1
-        if episodes % 10 == 0:
+        if episodes % 1 == 0:
             self.create_heatmap(self.covered_spaces)
         print(f"Episode number: {episodes}")
         #print(f"This is the metric: {self.metric()}")

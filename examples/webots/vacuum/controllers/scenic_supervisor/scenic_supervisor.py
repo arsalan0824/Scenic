@@ -24,11 +24,6 @@ import time
 import gc
 from collections import deque
 
-def adjust_clip_range(current_total_coverage_sum: float) -> float:
-    input_val = -0.26 * current_total_coverage_sum + 5.2
-    # input_val = -0.03 * current_total_coverage_sum + 1
-    return input_val
-
 import yaml
 
 with open("../../../../../config.yaml") as f:
